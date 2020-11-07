@@ -24,7 +24,7 @@ void* copy_to_executable(void* from, size_t len) {
 
 // region Registers
 // Idea: add Spilled-reg to mark values which were spilled onto the stack
-// Idea: to simplify no-reg and spilled-reg, make it so values can't occupy R12 and R13 and use those values to represent no and spilled
+// Idea: to simplify no-reg and spilled-reg, make it so values can't occupy RSP, RBP, R12, R13 and use those values to represent no and spilled
 //       this would also simplify mov code, as r12 and r13 are special-cased, so if we can't normally use them, we don't have to write the case
 //       this would also provide general purpose registers for uses like swapping variables and the like
 enum Register64 {
@@ -32,21 +32,26 @@ enum Register64 {
     RCX = 0b0001,
     RDX = 0b0010,
     RBX = 0b0011,
-    RSP = 0b0100,
-    RBP = 0b0101,
+
+    // We don't allow RSP and RBP to be used as registers
+    NO_REG = 0b0100,
+    SPILLED_REG = 0b0101,
+
     RSI = 0b0110,
     RDI = 0b0111,
     R8  = 0b1000,
     R9  = 0b1001,
     R10 = 0b1010,
     R11 = 0b1011,
-    R12 = 0b1100,
-    R13 = 0b1101,
+
+    // We also don't allow R12 and R13 to be used as general purpose registers
+    // Instead, reserve it for ourselves
+    TMP_1_REG = 0b1100,
+    TMP_2_REG = 0b1101,
+
     R14 = 0b1110,
     R15 = 0b1111,
-    NO_REG = 0b10000000,
 };
-
 // endregion
 
 
@@ -295,7 +300,24 @@ struct CompiledFunction compile_function(struct FunctionIR* func) {
         uint8_t* block_mem = malloc(mem_size);
         uint8_t* front_ptr = block_mem + mem_size;
 
-        bool used_registers[16] = { [0 ... 15] = false };
+        bool used_registers[16] = {
+                [RAX] = false,
+                [RCX] = false,
+                [RDX] = false,
+                [RBX] = false,
+                [NO_REG] = true,
+                [SPILLED_REG] = true,
+                [RSI] = false,
+                [RDI] = false,
+                [R8 ] = false,
+                [R9 ] = false,
+                [R10] = false,
+                [R11] = false,
+                [TMP_1_REG] = true,
+                [TMP_2_REG] = true,
+                [R14] = false,
+                [R15] = false,
+        };
 
         switch (block->terminator.ir_base.id) {
             case ID_TERM_NONE:
