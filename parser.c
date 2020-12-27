@@ -172,18 +172,10 @@ bool lexer_trie_match(struct LexState* lexer, struct TrieNode* trie_root, enum T
 
     struct TrieNode* node = trie_root;
     while (node->children_index[curr] != 0) {
-        struct TrieNode* old_node = node;
-        size_t goto_index = old_node->children_index[curr];
-        node = &trie_root[old_node->children_index[curr]];
-        size_t new_index = node->index;
-//        if (goto_index != new_index) {
-//            size_t true_index = node - trie_root;
-//            exit(-1);
-//        }
+        node = &trie_root[node->children_index[curr]];
         curr = lexer_advance(lexer);
     }
     if (node->may_be_leaf) {
-//        printf("type: %zu %u\n", node->index, index_ref[node->index-1]);
         lexer_emit_token(lexer, index_ref[node->index-1]);
         return true;
     } else {

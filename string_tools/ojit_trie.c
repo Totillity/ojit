@@ -3,7 +3,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 
 struct Trie construct_trie(char* sequences[], size_t num_sequences) {
@@ -32,14 +31,12 @@ struct Trie construct_trie(char* sequences[], size_t num_sequences) {
                 struct TrieNode* new_node = &trie.trie_node_array[node->children_index[chr]];
                 new_node->index = trie.num_nodes;
                 trie.num_nodes++;
-//                printf("New node created for '%c' with index %zu\n", chr, new_node->index);
             }
             size_t next_index = node->children_index[chr];
             node = &trie.trie_node_array[next_index];
             node_index = node->index;
         }
         node->may_be_leaf = true;
-//        node->index = i;
     }
 
     trie.trie_node_array = realloc(trie.trie_node_array, sizeof(struct TrieNode) * trie.num_nodes);
