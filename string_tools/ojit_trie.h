@@ -9,7 +9,7 @@
 //#define TRIE_CHAR_SIZE (TRIE_CHAR_END - TRIE_CHAR_START + 1)
 
 struct TrieNode {
-    struct TrieNode* children[128];
+    size_t children_index[128];
     bool may_be_leaf;
     size_t index;
 };

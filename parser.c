@@ -6,13 +6,13 @@
 
 struct Trie basic_token_trie;
 struct TrieNode* basic_token_trie_root;
-char* BASIC_TOKENS[4] = {
+char* BASIC_TOKENS[28] = {
         "{", "}", "(", ")",
-//      28  "=", "==",
-//        "!=", "!", "<", ">", "<=", ">=",
-//        "+", "-", "+=", "-=",
-//        "*", "**", "/", "//", "*=", "**=", "/=", "//=",
-//        ".", ":", ",", ";",
+        "=", "==",
+        "!", "!=", "<", ">", "<=", ">=",
+        "+", "-", "+=", "-=",
+        "*", "**", "/", "//", "*=", "**=", "/=", "//=",
+        ".", ":", ",", ";",
 };
 
 struct Trie keywords_trie;
@@ -21,11 +21,35 @@ char* KEYWORDS[1] = {
     "def",
 };
 
-enum TokenType BASIC_TOKEN_INDICIES[4] = {
-        [0] = TOKEN_LEFT_BRACE,
-        [1] = TOKEN_RIGHT_BRACE,
-        [2] = TOKEN_LEFT_PAREN,
-        [3] = TOKEN_RIGHT_PAREN,
+enum TokenType BASIC_TOKEN_INDICIES[28] = {
+        [0] =  TOKEN_LEFT_BRACE,
+        [1] =  TOKEN_RIGHT_BRACE,
+        [2] =  TOKEN_LEFT_PAREN,
+        [3] =  TOKEN_RIGHT_PAREN,
+        [4] =  TOKEN_EQUAL,
+        [5] =  TOKEN_EQUAL_EQUAL,
+        [6] =  TOKEN_BANG,
+        [7] =  TOKEN_BANG_EQUAL,
+        [8] =  TOKEN_LESS,
+        [9] =  TOKEN_GREATER,
+        [10] = TOKEN_LESS_EQUAL,
+        [11] = TOKEN_GREATER_EQUAL,
+        [12] = TOKEN_PLUS,
+        [13] = TOKEN_MINUS,
+        [14] = TOKEN_PLUS_EQUAL,
+        [15] = TOKEN_MINUS_EQUAL,
+        [16] = TOKEN_STAR,
+        [17] = TOKEN_STAR_STAR,
+        [18] = TOKEN_SLASH,
+        [19] = TOKEN_SLASH_SLASH,
+        [20] = TOKEN_STAR_EQUAL,
+        [21] = TOKEN_STAR_STAR_EQUAL,
+        [22] = TOKEN_SLASH_EQUAL,
+        [23] = TOKEN_SLASH_SLASH_EQUAL,
+        [24] = TOKEN_DOT,
+        [25] = TOKEN_COLON,
+        [26] = TOKEN_COMMA,
+        [27] = TOKEN_SEMICOLON,
 };
 
 
@@ -34,7 +58,7 @@ enum TokenType KEYWORDS_INDICES[1] = {
 };
 
 
-char* type_names[] = {
+char* type_names[32] = {
         [TOKEN_DEF] = "'def'\0",
         [TOKEN_IDENT] = "an identifier\0",
         [TOKEN_NUMBER] = "a number\0",
@@ -42,17 +66,40 @@ char* type_names[] = {
         [TOKEN_RIGHT_PAREN] = "')'\0",
         [TOKEN_LEFT_BRACE] = "'{'\0",
         [TOKEN_RIGHT_BRACE] = "'}'\0",
-        [TOKEN_EOF] = "the end of the file\0"
+        [TOKEN_EQUAL] = "'='",
+        [TOKEN_EQUAL_EQUAL] = "'=='",
+        [TOKEN_BANG] = "'!'",
+        [TOKEN_BANG_EQUAL] = "'!='",
+        [TOKEN_LESS] = "'<'",
+        [TOKEN_GREATER] = "'>'",
+        [TOKEN_LESS_EQUAL] = "'<='",
+        [TOKEN_GREATER_EQUAL] = "'>='",
+        [TOKEN_PLUS] = "'+'",
+        [TOKEN_MINUS] = "'-'",
+        [TOKEN_PLUS_EQUAL] = "'+='",
+        [TOKEN_MINUS_EQUAL] = "'-='",
+        [TOKEN_STAR] = "'*'",
+        [TOKEN_STAR_STAR] = "'**'",
+        [TOKEN_SLASH] = "'/'",
+        [TOKEN_SLASH_SLASH] = "'//'",
+        [TOKEN_STAR_EQUAL] = "'*='",
+        [TOKEN_STAR_STAR_EQUAL] = "'**='",
+        [TOKEN_SLASH_EQUAL] = "'/='",
+        [TOKEN_SLASH_SLASH_EQUAL] = "'//='",
+        [TOKEN_DOT] = "'.'",
+        [TOKEN_COLON] = "':'",
+        [TOKEN_COMMA] = "','",
+        [TOKEN_SEMICOLON] = "';'",
+        [TOKEN_EOF] = "the end of the file\0",
 };
 
 
 void init_parser() {
-    basic_token_trie = construct_trie(BASIC_TOKENS, 4);
+    basic_token_trie = construct_trie(BASIC_TOKENS, 28);
     basic_token_trie_root = &basic_token_trie.trie_node_array[0];
 
     keywords_trie = construct_trie(KEYWORDS, 1);
     keywords_trie_root = &keywords_trie.trie_node_array[0];
-    printf("%p %p\n", (void*) basic_token_trie_root, keywords_trie_root);
 }
 
 
@@ -60,7 +107,7 @@ void print_token(Token token) {
     char* text_buf = malloc(token.text.len+1);
     memcpy(text_buf, token.text.start_ptr, token.text.len);
     text_buf[token.text.len] = '\0';
-    printf("TOKEN(type: %s, text: %s)\n", type_names[token.type], text_buf);
+    printf("TOKEN(type: %s, text: '%s')\n", type_names[token.type], text_buf);
 }
 
 
@@ -113,18 +160,31 @@ char lexer_peek(struct LexState* lexer) {
 }
 
 
+bool lexer_at_end(struct LexState* lexer) {
+    return lexer->curr - lexer->source->text >= lexer->source->size;
+}
+
+
 bool lexer_trie_match(struct LexState* lexer, struct TrieNode* trie_root, enum TokenType* index_ref) {
     char* old_curr = lexer->curr;
 
     char curr = lexer_peek(lexer);
 
     struct TrieNode* node = trie_root;
-    while (node->children[curr] != NULL) {
-        node = node->children[curr];
+    while (node->children_index[curr] != 0) {
+        struct TrieNode* old_node = node;
+        size_t goto_index = old_node->children_index[curr];
+        node = &trie_root[old_node->children_index[curr]];
+        size_t new_index = node->index;
+//        if (goto_index != new_index) {
+//            size_t true_index = node - trie_root;
+//            exit(-1);
+//        }
         curr = lexer_advance(lexer);
     }
     if (node->may_be_leaf) {
-        lexer_emit_token(lexer, index_ref[node->index]);
+//        printf("type: %zu %u\n", node->index, index_ref[node->index-1]);
+        lexer_emit_token(lexer, index_ref[node->index-1]);
         return true;
     } else {
         lexer->curr = old_curr;
@@ -137,12 +197,12 @@ Token lexer_peek_token(struct LexState* lexer) {
     if (lexer->is_next_lexed) {
         return lexer->next_token;
     } else {
-        if (lexer->curr - lexer->start >= lexer->source->size) {  // TODO find a more efficient way to do this
+        if (lexer_at_end(lexer)) {  // TODO find a more efficient way to do this
             lexer->start = lexer->curr;
             return lexer_emit_token(lexer, TOKEN_EOF);
         }
         char curr = lexer_peek(lexer);
-        while (IS_WHITESPACE(curr)) {
+        while (!lexer_at_end(lexer) && IS_WHITESPACE(curr)) {
             curr = lexer_advance(lexer);
         }
         lexer->start = lexer->curr;
@@ -161,8 +221,10 @@ Token lexer_peek_token(struct LexState* lexer) {
                 curr = lexer_advance(lexer);
             }
             return lexer_emit_token(lexer, TOKEN_NUMBER);
+        } else if (lexer_at_end(lexer)) {  // TODO find a more efficient way to do this and fold these two copies
+            return lexer_emit_token(lexer, TOKEN_EOF);
         } else {
-            printf("Error: Unrecognized character '%c'.\n", curr);
+            printf("Error: Unrecognized character '%c' (0x%02x).\n", curr, curr);
             exit(-1);
         }
     }
