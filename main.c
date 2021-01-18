@@ -4,9 +4,9 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#include "parser.h"
-#include "asm_ir.h"
+//#include "parser/parser.h"
 #include "asm_ir_builders.h"
+#include "program_ir.h"
 
 // region Memory
 #include <windows.h>
@@ -33,8 +33,8 @@ void* copy_to_executable(void* from, size_t len) {
 #define MODRM(mod, reg, rm) (((mod) << 6) | ((reg) << 3) | (rm))
 
 
-#define MARK_REG(num)  do {assert(!used_registers[(num)]); used_registers[(num)] = true;} while (0)
-#define UNMARK_REG(num)  do {assert(used_registers[(num)]); used_registers[(num)] = false;} while (0)
+#define MARK_REG(num)  do {assert(used_registers[(num)] == false); used_registers[(num)] = true;} while (0)
+#define UNMARK_REG(num)  do {assert(used_registers[(num)] == true); used_registers[(num)] = false;} while (0)
 #define ASSIGN_REG(value, reg) do {assert(!IS_ASSIGNED((value))); (value) = (reg);} while (0)
 
 #define PARAM_CHECK(reg) ({ if (IS_PARAM_REG(reg)) { (reg) = NORMALIZE_REG(reg); MARK_REG(reg); } (reg);})
@@ -81,7 +81,7 @@ struct CompiledFunction compile_function(struct FunctionIR* func) {
         uint8_t* block_mem = malloc(mem_size);
         memset(block_mem, 0, mem_size);
         uint8_t* front_ptr = block_mem + mem_size;
-        uint8_t* end_ptr = block_mem + mem_size;
+//        uint8_t* end_ptr = block_mem + mem_size;
 
         bool used_registers[16] = {
                 [RAX] = false,
@@ -148,8 +148,8 @@ struct CompiledFunction compile_function(struct FunctionIR* func) {
                             // find an unused register and assign it to both
                             Register64 reg = get_unused(used_registers);
                             if (reg == NO_REG) {
-                                // TODO register spilling
-                                exit(-1);
+                                printf("Too many registers used concurrently");
+                                exit(-1);  // TODO register spilling
                             } else {
                                 ASSIGN_REG(argument->base.reg, reg);
                                 MARK_REG(argument->base.reg);
@@ -159,7 +159,7 @@ struct CompiledFunction compile_function(struct FunctionIR* func) {
                         }
                     } else {
                         printf("Too many arguments");
-                        exit(-1);
+                        exit(-1);  // TODO programmer error
                     }
                 }
 
@@ -177,11 +177,12 @@ struct CompiledFunction compile_function(struct FunctionIR* func) {
                 break;
             }
             case ID_TERM_NONE: {
-                exit(-1);
+                printf("No terminator");
+                exit(-1);  // TODO programmer error
             }
             default: {
                 printf("Unimplemented terminator");
-                exit(-1);
+                exit(-1); // TODO programmer error
             }
         }
 
@@ -224,32 +225,36 @@ struct CompiledFunction compile_function(struct FunctionIR* func) {
                             // use b as our primary register which is added into and contains the result
                             // after all, this is b's last (or first) use, so it's safe
                             ASSIGN_REG(instr->b->base.reg, instr->base.reg);
-                            primary_reg = b_register;
+                            primary_reg = b_register;  // TODO this seems broken
                             secondary_reg = a_register;
                         } else if (b_assigned) {
                             // use a as our primary register which is added into and contains the result
                             // after all, this is a's last (or first) use, so it's safe
                             ASSIGN_REG(instr->a->base.reg, instr->base.reg);
-                            primary_reg = a_register;
+                            primary_reg = a_register;  // TODO this seems broken
                             secondary_reg = b_register;
                         } else {
                             // use a as our primary register which is added into and contains the result
                             // after all, this is a's last (or first) use, so it's safe
                             ASSIGN_REG(instr->a->base.reg, instr->base.reg);
-                            primary_reg = a_register;
-                            secondary_reg = b_register;
+                            MARK_REG(instr->a->base.reg);
+                            a_register = instr->a->base.reg;
 
                             Register64 reg = get_unused(used_registers);
                             if (reg == NO_REG) {
+                                printf("Too many registers used concurrently");
                                 exit(-1); // TODO spill
                             } else {
                                 ASSIGN_REG(instr->b->base.reg, reg);
                                 MARK_REG(reg);
+                                b_register = instr->b->base.reg;
                             }
+                            primary_reg = a_register;
+                            secondary_reg = b_register;
                         }
 
                         EMIT_ADD_R64_R64(primary_reg, secondary_reg);
-                        if (primary_reg == instr->base.reg) {
+                        if (primary_reg == instr->base.reg) {   // TODO what the hell is going on here
                             // we have to move 'a' into it first
                             EMIT_MOV_R64_R64(primary_reg, a_register);
                         }
@@ -261,11 +266,12 @@ struct CompiledFunction compile_function(struct FunctionIR* func) {
                 }
 
                 case ID_INSTR_NONE: {
-                    exit(-1);
+                    printf("Broken instruction");
+                    exit(-1);  // TODO programmer error
                 }
                 default: {
                     printf("Unimplemented instruction");
-                    exit(-1);
+                    exit(-1);  // TODO programmer error
                 }
             }
         }
@@ -304,43 +310,48 @@ struct CompiledFunction compile_function(struct FunctionIR* func) {
 
 typedef int (*FuncType)();
 
-
-void test_lexer(struct Source* source) {
-    init_parser();
-    puts(source->text);
-    struct LexState* lexer = create_lexer(source);
-    Token token;
-    do {
-        token = lexer_next_token(lexer);
-        print_token(token);
-    } while (token.type != TOKEN_EOF);
-}
+//
+//void test_lexer(struct Source* source) {
+//    init_lexer();
+//    puts(source->text);
+//    struct Lexer* lexer = create_lexer(source);
+//    Token token;
+//    do {
+//        token = lexer_next_token(lexer);
+//        print_token(token);
+//    } while (token.type != TOKEN_EOF);
+//}
 
 
 int main() {
-    struct Source* test_source = read_file("test.txt\0");
-    test_lexer(test_source);
+    ProgramIR program_ir;
+    create_program_ir(&program_ir);
+
+    String source = program_ir_read_file(&program_ir, "test.txt");
+    program_ir_parse_source(&program_ir, source);
+    struct FunctionIR* main;
+    program_ir_get_function_r(&program_ir, "main", 4, &main);
 
 
-    // region Construct IR
-    struct FunctionIR* function = create_function("main");
+//    // region Construct IR
+//    struct FunctionIR* function = create_function(STRING("main"));
+//
+//    struct BlockIR* entry = GET_BLOCK(function, 0);
+//
+//    struct BlockIR* end   = function_add_block(function);
+//    IRValue param_1 = block_add_parameter(end);
+//    IRValue param_2 = block_add_parameter(end);
+//
+//    IRValue const_1 = block_build_Int(entry, 1);
+//    IRValue const_2 = block_build_Int(entry, 2);
+//    IRValue arguments[2] = {const_1, const_2};
+//    block_terminate_Branch(entry, end, 2, arguments);
+//
+//    IRValue added   = block_build_Add(end, param_1, param_2);
+//    block_terminate_Return(end, added);
+//    // endregion
 
-    struct BlockIR* entry = GET_BLOCK(function, 0);
-
-    struct BlockIR* end   = function_add_block(function);
-    IRValue param_1 = block_add_parameter(end);
-    IRValue param_2 = block_add_parameter(end);
-
-    IRValue const_1 = block_build_Int(entry, 1);
-    IRValue const_2 = block_build_Int(entry, 2);
-    IRValue arguments[2] = {const_1, const_2};
-    block_terminate_Branch(entry, end, 2, arguments);
-
-    IRValue added   = block_build_Add(end, param_1, param_2);
-    block_terminate_Return(end, added);
-    // endregion
-
-    struct CompiledFunction compiled = compile_function(function);
+    struct CompiledFunction compiled = compile_function(main);
     for (int i = 0; i < compiled.size; i++ ) {
         printf("%02x", compiled.mem[i]);
     }

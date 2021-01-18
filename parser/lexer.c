@@ -1,11 +1,24 @@
-#include "parser.h"
-
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
+#include "lexer.h"
+#include "../string_tools/ojit_trie.h"
+
+struct Lexer {
+        struct StringTable* table_ptr;
+        String source;
+        char* start;
+        char* curr;
+
+        String keywords[20];
+
+        bool is_next_lexed;
+        Token next_token;
+};
 
 struct Trie basic_token_trie;
-struct TrieNode* basic_token_trie_root;
+struct TrieNode* basic_token_trie_root = NULL;
 char* BASIC_TOKENS[28] = {
         "{", "}", "(", ")",
         "=", "==",
@@ -13,12 +26,6 @@ char* BASIC_TOKENS[28] = {
         "+", "-", "+=", "-=",
         "*", "**", "/", "//", "*=", "**=", "/=", "//=",
         ".", ":", ",", ";",
-};
-
-struct Trie keywords_trie;
-struct TrieNode* keywords_trie_root;
-char* KEYWORDS[1] = {
-    "def",
 };
 
 enum TokenType BASIC_TOKEN_INDICIES[28] = {
@@ -53,19 +60,20 @@ enum TokenType BASIC_TOKEN_INDICIES[28] = {
 };
 
 
-enum TokenType KEYWORDS_INDICES[1] = {
-        [0] = TOKEN_DEF,
-};
-
-
-char* type_names[32] = {
-        [TOKEN_DEF] = "'def'\0",
-        [TOKEN_IDENT] = "an identifier\0",
-        [TOKEN_NUMBER] = "a number\0",
-        [TOKEN_LEFT_PAREN] = "'('\0",
-        [TOKEN_RIGHT_PAREN] = "')'\0",
-        [TOKEN_LEFT_BRACE] = "'{'\0",
-        [TOKEN_RIGHT_BRACE] = "'}'\0",
+char* type_names[38] = {
+        [TOKEN_DEF] = "'def'",
+        [TOKEN_RETURN] = "'return'",
+        [TOKEN_LET] = "'let'",
+        [TOKEN_WHILE] = "'while'",
+        [TOKEN_FOR] = "'for'",
+        [TOKEN_AND] = "'and'",
+        [TOKEN_OR] = "'or'",
+        [TOKEN_IDENT] = "an identifier",
+        [TOKEN_NUMBER] = "a number",
+        [TOKEN_LEFT_PAREN] = "'('",
+        [TOKEN_RIGHT_PAREN] = "')'",
+        [TOKEN_LEFT_BRACE] = "'{'",
+        [TOKEN_RIGHT_BRACE] = "'}'",
         [TOKEN_EQUAL] = "'='",
         [TOKEN_EQUAL_EQUAL] = "'=='",
         [TOKEN_BANG] = "'!'",
@@ -94,43 +102,37 @@ char* type_names[32] = {
 };
 
 
-void init_parser() {
+void init_trie() {
     basic_token_trie = construct_trie(BASIC_TOKENS, 28);
     basic_token_trie_root = &basic_token_trie.trie_node_array[0];
-
-    keywords_trie = construct_trie(KEYWORDS, 1);
-    keywords_trie_root = &keywords_trie.trie_node_array[0];
 }
 
 
 void print_token(Token token) {
-    char* text_buf = malloc(token.text.len+1);
-    memcpy(text_buf, token.text.start_ptr, token.text.len);
-    text_buf[token.text.len] = '\0';
+    char* text_buf = malloc(token.text->length+1);
+    memcpy(text_buf, token.text->start_ptr, token.text->length);
+    text_buf[token.text->length] = '\0';
     printf("TOKEN(type: %s, text: '%s')\n", type_names[token.type], text_buf);
 }
 
+struct Lexer* create_lexer(struct StringTable* table_ptr, String source) {
+    struct Lexer* lexer = malloc(sizeof(struct Lexer));
+    lexer->table_ptr = table_ptr;
 
-struct Source* read_file(char* path) {
-    FILE* file = fopen(path, "r"); // TODO check for null
-    fseek(file, 0L, SEEK_END);
-    size_t file_size = ftell(file);
-    rewind(file);
+    if (basic_token_trie_root == NULL) {
+        init_trie();
+    }
 
-    struct Source* source = (struct Source*) malloc(sizeof(struct Source) + file_size + 1);
-    source->size = fread(&source->text, sizeof(char), file_size, file);
-    source->text[source->size] = '\0';
-    fclose(file);
-    return source;
-}
+    lexer->keywords[TOKEN_DEF] = string_table_add(lexer->table_ptr, "def", 3);
+    lexer->keywords[TOKEN_RETURN] = string_table_add(lexer->table_ptr, "return", 6);
+    lexer->keywords[TOKEN_LET] = string_table_add(lexer->table_ptr, "let", 3);
 
-struct LexState* create_lexer(struct Source* source) {
-    struct LexState* state = malloc(sizeof(struct LexState));
-    state->source = source;
-    state->start = source->text;
-    state->curr = source->text;
-    state->is_next_lexed = false;
-    return state;
+    lexer->source = source;
+    lexer->start = source->start_ptr;
+    lexer->curr = source->start_ptr;
+    lexer->is_next_lexed = false;
+
+    return lexer;
 }
 
 #define IS_ALPHA(chr) (('a' <= (chr) && (chr) <= 'z') || ('A' <= (chr) && (chr) <= 'Z') || ((chr) == '_'))
@@ -139,33 +141,48 @@ struct LexState* create_lexer(struct Source* source) {
 #define IS_WHITESPACE(chr) ((chr) == ' ' || (chr) == '\t' || (chr) == '\r' || (chr) == '\n')
 
 
-Token lexer_emit_token(struct LexState* lexer, enum TokenType type) {
-    lexer->next_token = (struct Token) {
-        .type = type,
-        .text = (struct String) {.start_ptr = lexer->start, .len = lexer->curr - lexer->start}
+Token lexer_emit_token(struct Lexer* lexer, enum TokenType type) {
+    lexer->next_token = (Token) {
+            .type = type,
+            .text = string_table_add(lexer->table_ptr, lexer->start, lexer->curr - lexer->start),
     };
     lexer->is_next_lexed = true;
     return lexer->next_token;
 }
 
 
-char lexer_advance(struct LexState* lexer) {
+Token lexer_emit_ident(struct Lexer* lexer) {
+    String text = string_table_add(lexer->table_ptr, lexer->start, lexer->curr - lexer->start);
+    enum TokenType type;
+    if (string_equal(text, lexer->keywords[TOKEN_DEF])) {
+        type = TOKEN_DEF;
+    } else if (string_equal(text, lexer->keywords[TOKEN_RETURN])) {
+        type = TOKEN_RETURN;
+    } else if (string_equal(text, lexer->keywords[TOKEN_LET])) {
+        type = TOKEN_LET;
+    } else {
+        type = TOKEN_IDENT;
+    }
+    lexer->next_token = (Token) { .type = type, .text = text };
+    lexer->is_next_lexed = true;
+    return lexer->next_token;
+}
+
+
+char lexer_advance(struct Lexer* lexer) {
     lexer->curr++;
     return lexer->curr[0];
 }
 
-
-char lexer_peek(struct LexState* lexer) {
+char lexer_peek(struct Lexer* lexer) {
     return lexer->curr[0];
 }
 
-
-bool lexer_at_end(struct LexState* lexer) {
-    return lexer->curr - lexer->source->text >= lexer->source->size;
+bool lexer_at_end(struct Lexer* lexer) {
+    return lexer->curr - lexer->source->start_ptr >= lexer->source->length;
 }
 
-
-bool lexer_trie_match(struct LexState* lexer, struct TrieNode* trie_root, enum TokenType* index_ref) {
+bool lexer_trie_match(struct Lexer* lexer, struct TrieNode* trie_root, enum TokenType* index_ref) {
     char* old_curr = lexer->curr;
 
     char curr = lexer_peek(lexer);
@@ -185,7 +202,7 @@ bool lexer_trie_match(struct LexState* lexer, struct TrieNode* trie_root, enum T
 }
 
 
-Token lexer_peek_token(struct LexState* lexer) {
+Token lexer_peek_token(struct Lexer* lexer) {
     if (lexer->is_next_lexed) {
         return lexer->next_token;
     } else {
@@ -201,13 +218,10 @@ Token lexer_peek_token(struct LexState* lexer) {
         if (lexer_trie_match(lexer, basic_token_trie_root, BASIC_TOKEN_INDICIES)) {
             return lexer->next_token;
         } else if (IS_ALPHA(curr)) {
-            if (lexer_trie_match(lexer, keywords_trie_root, KEYWORDS_INDICES)) {
-                return lexer->next_token;
-            }
             while (IS_ALPHANUM(curr)) {
                 curr = lexer_advance(lexer);
             }
-            return lexer_emit_token(lexer, TOKEN_IDENT);
+            return lexer_emit_ident(lexer);
         } else if (IS_NUM(curr)) {
             while (IS_NUM(curr)) {
                 curr = lexer_advance(lexer);
@@ -217,52 +231,19 @@ Token lexer_peek_token(struct LexState* lexer) {
             return lexer_emit_token(lexer, TOKEN_EOF);
         } else {
             printf("Error: Unrecognized character '%c' (0x%02x).\n", curr, curr);
-            exit(-1);
+            exit(-1);  // TODO exception handling
         }
     }
 }
 
 
-Token lexer_next_token(struct LexState* lexer) {
+Token lexer_next_token(struct Lexer* lexer) {
     Token token = lexer_peek_token(lexer);
     lexer->is_next_lexed = false;
     return token;
 }
 
 
-struct ParseState* create_parser(struct LexState* lexer) {
-    struct ParseState* parser = malloc(sizeof(struct ParseState));
-    parser->lexer = lexer;
-    return parser;
-}
-
-
-Token parser_expect(struct ParseState* parser, enum TokenType type) {
-    Token token = lexer_next_token(parser->lexer);
-    if (token.type == type) {
-        return token;
-    } else {
-        printf("Error: Expected %s, got %s", type_names[type], type_names[token.type]);
-        exit(-1);
-    }
-}
-
-
-bool parser_peek(struct ParseState* parser, enum TokenType type) {
-    Token token = lexer_peek_token(parser->lexer);
-    return token.type == type;
-}
-
-
-struct FunctionIR* parse_function(struct ParseState* parser) {
-    Token start = parser_expect(parser, TOKEN_DEF);
-    Token name = parser_expect(parser, TOKEN_IDENT);
-    parser_expect(parser, TOKEN_LEFT_PAREN);
-    parser_expect(parser, TOKEN_RIGHT_PAREN);
-
-    parser_expect(parser, TOKEN_LEFT_BRACE);
-    while (!parser_peek(parser, TOKEN_RIGHT_BRACE)) {
-
-    }
-    parser_expect(parser, TOKEN_RIGHT_BRACE);
+char* get_token_name(enum TokenType type) {
+    return type_names[type];
 }

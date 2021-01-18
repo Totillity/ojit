@@ -3,11 +3,14 @@
 
 #include <stdint.h>
 
+#include "string_tools/ojit_string.h"
+#include "hash_table/hash_table.h"
+
 // region Registers
 // Idea: add Spilled-reg to mark values which were spilled onto the stack
 // Idea: to simplify no-reg and spilled-reg, make it so values can't occupy RSP, RBP, R12, R13 and use those values to represent no and spilled
-//       this would also simplify mov code, as r12 and r13 are special-cased, so if we can't normally use them, we don't have to write the case
-//       this would also provide general purpose registers for uses like swapping variables and the like
+//       this would also_lvalue simplify mov code, as r12 and r13 are special-cased, so if we can't normally use them, we don't have to write the case
+//       this would also_lvalue provide general purpose registers for uses like swapping variables and the like
 enum Register64 {
     RAX = 0b0000,
     RCX = 0b0001,
@@ -25,7 +28,7 @@ enum Register64 {
     R10 = 0b1010,
     R11 = 0b1011,
 
-    // We also don't allow R12 and R13 to be used as general purpose registers
+    // We also_lvalue don't allow R12 and R13 to be used as general purpose registers
     // Instead, reserve it for ourselves
     TMP_1_REG = 0b1100,
     TMP_2_REG = 0b1101,
@@ -64,7 +67,7 @@ typedef enum Register64 Register64;
 #define IS_ASSIGNED(reg) (((reg) & 0b1111) != NO_REG)
 // endregion
 
-// region Instruction Base
+// region Instruction
 enum InstructionID {
     ID_INSTR_NONE = 0,
     ID_PARAMETER_IR,
@@ -159,6 +162,7 @@ union TerminatorIR {
 struct BlockIR {
     struct InstructionList instrs;
     union TerminatorIR terminator;
+    struct HashTable variables;
 
     uint8_t* code_ptr;
     struct BranchIR* next_listener;
@@ -182,12 +186,14 @@ struct BlockIR* block_list_add_block(struct BlockList* list);
 
 // region Function
 struct FunctionIR {
+    String name;
     struct BlockList blocks;
 };
 
 #define GET_BLOCK(func_ptr, n) (&((func_ptr)->blocks.array[(n)]))
-struct FunctionIR* create_function(char* name);
+struct FunctionIR* create_function(String name);
 struct BlockIR* function_add_block(struct FunctionIR* func);
 // endregion Function
+
 
 #endif //OJIT_ASM_IR_H

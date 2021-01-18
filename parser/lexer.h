@@ -1,21 +1,18 @@
-#ifndef OJIT_PARSER_H
-#define OJIT_PARSER_H
+#ifndef OJIT_LEXER_H
+#define OJIT_LEXER_H
 
-#include <stdlib.h>
-#include <stdbool.h>
-
-#include "asm_ir.h"
-#include "string_tools/ojit_string.h"
-#include "string_tools/ojit_trie.h"
-
-struct Source {
-    size_t size;
-    char text[];
-};
-
+#include "../string_tools/ojit_string.h"
+#include "../asm_ir.h"
 
 enum TokenType {
     TOKEN_DEF,
+    TOKEN_RETURN,
+    TOKEN_LET,
+    TOKEN_WHILE,
+    TOKEN_FOR,
+    TOKEN_AND,
+    TOKEN_OR,
+
     TOKEN_IDENT,
     TOKEN_NUMBER,
     TOKEN_LEFT_PAREN,
@@ -50,33 +47,18 @@ enum TokenType {
 };
 
 
-typedef struct Token {
+typedef struct Token_s {
     enum TokenType type;
-    struct String text;
+    String text;
 } Token;
 
 
-struct LexState {
-    struct Source* source;
-    char* start;
-    char* curr;
+struct Lexer;
 
-    bool is_next_lexed;
-    Token next_token;
-};
+struct Lexer* create_lexer(struct StringTable* table_ptr, String source);
 
+Token lexer_peek_token(struct Lexer* lexer);
+Token lexer_next_token(struct Lexer* lexer);
+char* get_token_name(enum TokenType type);
 
-struct ParseState {
-    struct LexState* lexer;
-};
-
-
-struct Source* read_file(char* path);
-
-void init_parser();
-void print_token(Token token);
-
-struct LexState* create_lexer(struct Source* source);
-Token lexer_next_token(struct LexState* lexer);
-
-#endif //OJIT_PARSER_H
+#endif //OJIT_LEXER_H

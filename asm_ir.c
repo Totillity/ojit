@@ -6,7 +6,7 @@
 void init_instruction_list(struct InstructionList* list, size_t capacity) {
     list->array = malloc(sizeof(union InstructionIR) * capacity);
     if (list->array == NULL) {
-        exit(-1);
+        exit(-1);  // TODO memoery error
     }
     list->cap = capacity;
     list->len = 0;
@@ -29,7 +29,7 @@ void init_value_list(struct IRValueList* list, size_t item_count, IRValue* items
     if (item_count) {
         list->array = malloc(sizeof(union InstructionIR*) * item_count);
         if (list->array == NULL) {
-            exit(-1);
+            exit(-1);  // TODO memory exit
         }
         memcpy(list->array, items, sizeof(union InstructionIR*) * item_count);
         list->cap = item_count;
@@ -37,7 +37,7 @@ void init_value_list(struct IRValueList* list, size_t item_count, IRValue* items
     } else {
         list->array = malloc(sizeof(union InstructionIR*) * VALUE_LIST_INIT_SIZE);
         if (list->array == NULL) {
-            exit(-1);
+            exit(-1);  // TODO memory exit
         }
         memcpy(list->array, items, sizeof(union InstructionIR*) * VALUE_LIST_INIT_SIZE);
         list->cap = VALUE_LIST_INIT_SIZE;
@@ -56,6 +56,7 @@ void value_list_add_value(struct IRValueList* list, IRValue value) {
 void init_block(struct BlockIR* block) {
     init_instruction_list(&block->instrs, 8);
     block->terminator.ir_base.id = ID_TERM_NONE;
+    init_hash_table(&block->variables, 36);
 
     block->code_ptr = NULL;
     block->next_listener = NULL;
@@ -77,9 +78,10 @@ struct BlockIR* block_list_add_block(struct BlockList* list) {
     return new_block;
 }
 
-struct FunctionIR* create_function(char* name) {
+struct FunctionIR* create_function(String name) {
     struct FunctionIR* function = malloc(sizeof(struct FunctionIR));
     init_block_list(&function->blocks, 8);
+    function->name = name;
 
     block_list_add_block(&function->blocks);
     return function;
