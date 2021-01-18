@@ -206,58 +206,60 @@ struct CompiledFunction compile_function(struct FunctionIR* func) {
                 case ID_ADD_IR: {
                     struct AddIR* instr = &block->instrs.array[j].ir_add;
 
-                    if (IS_ASSIGNED(instr->base.reg)) {
-                        UNMARK_REG(instr->base.reg);
+                    if (!IS_ASSIGNED(instr->base.reg)) break;
+
+                    // by unmarking the register the result is stored in, we can use it as the register of one of the arguments
+                    Register64 this_reg = instr->base.reg;
+                    if (IS_ASSIGNED(this_reg)) {
+                        UNMARK_REG(this_reg);
                     }
+
                     Register64 a_register = PARAM_CHECK(instr->a->base.reg);
                     Register64 b_register = PARAM_CHECK(instr->b->base.reg);
-                    if (IS_ASSIGNED(instr->base.reg)) {
-                        bool a_assigned = IS_ASSIGNED(a_register);
-                        bool b_assigned = IS_ASSIGNED(b_register);
+                    bool a_assigned = IS_ASSIGNED(a_register);
+                    bool b_assigned = IS_ASSIGNED(b_register);
+
+                    if (a_assigned && b_assigned) {
+                        // we need to copy a into primary_reg, then add b into it
+                        EMIT_ADD_R64_R64(this_reg, b_register);
+                        EMIT_MOV_R64_R64(this_reg, a_register);
+                    } else {
                         Register64 primary_reg;  // the register we add into to get the result
                         Register64 secondary_reg; // the register we add in
 
-                        if (a_assigned && b_assigned) {
-                            // so just a mov to get stuff in the right place?
-                            primary_reg = instr->base.reg;
-                            secondary_reg = b_register;
-                        } else if (a_assigned) {
+                        if (a_assigned) {
                             // use b as our primary register which is added into and contains the result
                             // after all, this is b's last (or first) use, so it's safe
-                            ASSIGN_REG(instr->b->base.reg, instr->base.reg);
-                            primary_reg = b_register;  // TODO this seems broken
+                            ASSIGN_REG(instr->b->base.reg, this_reg);
+                            MARK_REG(this_reg);
+                            primary_reg = this_reg;
                             secondary_reg = a_register;
                         } else if (b_assigned) {
                             // use a as our primary register which is added into and contains the result
                             // after all, this is a's last (or first) use, so it's safe
-                            ASSIGN_REG(instr->a->base.reg, instr->base.reg);
-                            primary_reg = a_register;  // TODO this seems broken
+                            ASSIGN_REG(instr->a->base.reg, this_reg);
+                            MARK_REG(this_reg);
+                            primary_reg = this_reg;
                             secondary_reg = b_register;
                         } else {
                             // use a as our primary register which is added into and contains the result
                             // after all, this is a's last (or first) use, so it's safe
-                            ASSIGN_REG(instr->a->base.reg, instr->base.reg);
-                            MARK_REG(instr->a->base.reg);
-                            a_register = instr->a->base.reg;
+                            ASSIGN_REG(instr->a->base.reg, this_reg);
+                            MARK_REG(this_reg);
 
-                            Register64 reg = get_unused(used_registers);
-                            if (reg == NO_REG) {
+                            // now find a register to put b into
+                            Register64 reg_1 = get_unused(used_registers);
+                            if (reg_1 == NO_REG) {
                                 printf("Too many registers used concurrently");
                                 exit(-1); // TODO spill
                             } else {
-                                ASSIGN_REG(instr->b->base.reg, reg);
-                                MARK_REG(reg);
-                                b_register = instr->b->base.reg;
+                                ASSIGN_REG(instr->b->base.reg, reg_1);
+                                MARK_REG(reg_1);
                             }
-                            primary_reg = a_register;
-                            secondary_reg = b_register;
+                            primary_reg = this_reg;
+                            secondary_reg = reg_1;
                         }
-
                         EMIT_ADD_R64_R64(primary_reg, secondary_reg);
-                        if (primary_reg == instr->base.reg) {   // TODO what the hell is going on here
-                            // we have to move 'a' into it first
-                            EMIT_MOV_R64_R64(primary_reg, a_register);
-                        }
                     }
                     break;
                 }
@@ -309,18 +311,6 @@ struct CompiledFunction compile_function(struct FunctionIR* func) {
 
 
 typedef int (*FuncType)();
-
-//
-//void test_lexer(struct Source* source) {
-//    init_lexer();
-//    puts(source->text);
-//    struct Lexer* lexer = create_lexer(source);
-//    Token token;
-//    do {
-//        token = lexer_next_token(lexer);
-//        print_token(token);
-//    } while (token.type != TOKEN_EOF);
-//}
 
 
 int main() {
