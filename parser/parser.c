@@ -107,12 +107,26 @@ ExpressionValue parse_addition(Parser* parser, bool lvalue) {
     ExpressionValue expr = parse_terminal(parser, lvalue);
 
     Token curr = parser_peek(parser);
-    while (curr.type == TOKEN_PLUS) {
-        parser_expect(parser, TOKEN_PLUS);
-        IRValue right = RVALUE(parse_terminal(parser, false));
-        expr = WRAP_RVALUE(builder_Add(parser->builder, RVALUE(expr), right));
-        curr = parser_peek(parser);
+    IRValue right;
+    while (true) {
+        switch (curr.type) {
+            case TOKEN_PLUS:
+                parser_expect(parser, TOKEN_PLUS);
+                right = RVALUE(parse_terminal(parser, false));
+                expr = WRAP_RVALUE(builder_Add(parser->builder, RVALUE(expr), right));
+                curr = parser_peek(parser);
+                break;
+            case TOKEN_MINUS:
+                parser_expect(parser, TOKEN_MINUS);
+                right = RVALUE(parse_terminal(parser, false));
+                expr = WRAP_RVALUE(builder_Sub(parser->builder, RVALUE(expr), right));
+                curr = parser_peek(parser);
+                break;
+            default:
+                goto at_end;
+        }
     }
+    at_end:
 
     return expr;
 }

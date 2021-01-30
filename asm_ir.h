@@ -73,6 +73,7 @@ enum InstructionID {
     ID_PARAMETER_IR,
     ID_INT_IR,
     ID_ADD_IR,
+    ID_SUB_IR,
 };
 
 struct InstructionBase {
@@ -95,12 +96,20 @@ struct AddIR {
     union InstructionIR* b;
 };
 
+struct SubIR {
+    struct InstructionBase base;
+    union InstructionIR* a;
+    union InstructionIR* b;
+};
+
 union InstructionIR {
     struct InstructionBase base;
     struct ParameterIR ir_parameter;
     struct IntIR ir_int;
     struct AddIR ir_add;
+    struct SubIR ir_sub;
 };
+
 typedef union InstructionIR* IRValue;
 
 
@@ -163,13 +172,11 @@ struct BlockIR {
     struct InstructionList instrs;
     union TerminatorIR terminator;
     struct HashTable variables;
-
-    uint8_t* code_ptr;
-    struct BranchIR* next_listener;
+    size_t block_num;
 };
 
 
-void init_block(struct BlockIR* block);
+void init_block(struct BlockIR* block, size_t block_num);
 // endregion
 
 // region BlockList

@@ -77,6 +77,15 @@ IRValue builder_Add(struct IRBuilder* builder, IRValue a, IRValue b) {
     return (union InstructionIR*) instr;
 }
 
+IRValue builder_Sub(struct IRBuilder* builder, IRValue a, IRValue b) {
+    struct SubIR* instr = &instruction_list_add_instruction(&builder->current_block->instrs)->ir_sub;
+    instr->a = a;
+    instr->b = b;
+    instr->base.id = ID_SUB_IR;
+    instr->base.reg = NO_REG;
+    return (union InstructionIR*) instr;
+}
+
 void builder_Return(struct IRBuilder* builder, IRValue value) {
     struct ReturnIR* term = &builder->current_block->terminator.ir_return;
     term->value = value;

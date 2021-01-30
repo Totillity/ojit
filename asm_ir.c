@@ -53,13 +53,12 @@ void value_list_add_value(struct IRValueList* list, IRValue value) {
     list->array[list->len++] = value;
 }
 
-void init_block(struct BlockIR* block) {
+void init_block(struct BlockIR* block, size_t block_num) {
     init_instruction_list(&block->instrs, 8);
     block->terminator.ir_base.id = ID_TERM_NONE;
     init_hash_table(&block->variables, 36);
+    block->block_num = block_num;
 
-    block->code_ptr = NULL;
-    block->next_listener = NULL;
 }
 
 void init_block_list(struct BlockList* list, size_t capacity) {
@@ -73,8 +72,9 @@ struct BlockIR* block_list_add_block(struct BlockList* list) {
         list->cap = list->len*2;
         list->array = realloc(list->array, sizeof(struct BlockIR) * list->cap);
     }
-    struct BlockIR* new_block = &list->array[list->len++];
-    init_block(new_block);
+    size_t index = list->len++;
+    struct BlockIR* new_block = &list->array[index];
+    init_block(new_block, index);
     return new_block;
 }
 

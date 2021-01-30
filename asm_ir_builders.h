@@ -24,6 +24,7 @@ IRValue builder_get_variable(struct IRBuilder* builder, String var_name);
 
 IRValue builder_Int(struct IRBuilder* builder, int32_t constant);
 IRValue builder_Add(struct IRBuilder* builder, IRValue a, IRValue b);
+IRValue builder_Sub(struct IRBuilder* builder, IRValue a, IRValue b);
 
 void builder_Return(struct IRBuilder* builder, IRValue value);
 void builder_Branch(struct IRBuilder* builder, struct BlockIR* target, size_t arg_count, IRValue* arguments);
