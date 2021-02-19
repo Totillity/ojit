@@ -1,4 +1,4 @@
-#include <stdlib.h>
+//#include <stdlib.h>
 #include <string.h>
 
 #include "../string_tools/ojit_string.h"
@@ -12,96 +12,83 @@ struct TableEntry {
 };
 
 
-void init_hash_table(struct HashTable* table, size_t init_size) {
-    table->entries = calloc(init_size, sizeof(struct TableEntry));
-    table->size = init_size;
-    table->used = 0;
-}
-
-
-void hash_table_resize(struct HashTable* table, size_t new_size) {
-    if (new_size < table->used) {
-        exit(-1);  // TODO programmer error
-    }
-    struct TableEntry* entries = table->entries;
-    struct TableEntry* new_entries = calloc(new_size, sizeof(struct TableEntry));
-
-    for (size_t i = 0; i < table->size; i++) {
-        struct TableEntry entry = entries[i];
-        if (entry.is_used) {
-            size_t new_index = entry.key->hash % new_size;
-            while (new_entries[new_index].is_used) {
-                new_index++;
-                if (new_index == table->size) {
-                    new_index = 0;
-                }
-            }
-            new_entries[new_index] = entry;
-        }
-    }
-    free(table->entries);
-    table->entries = new_entries;
-    table->size = new_size;
+void init_hash_table(struct HashTable* table, MemCtx* mem) {
+    table->first_block = lalist_grow(mem, NULL, NULL);
+    table->mem = mem;
 }
 
 
 bool hash_table_insert(struct HashTable* table, String key, uint64_t value) {
-    if (((double) table->used / table->size) > 0.75) {
-        hash_table_resize(table, table->size*2);
-    }
+    size_t insert_index = key->hash % (LALIST_BLOCK_SIZE / sizeof(struct TableEntry));
 
-    struct TableEntry* entries = table->entries;
-
-    size_t insert_index = key->hash % table->size;
-    while (entries[insert_index].is_used) {
-        if (string_equal(key, entries[insert_index].key)) {
-            return false;
-        }
-        insert_index++;
-        if (insert_index == table->size) {
-            insert_index = 0;
+    LAList* curr_block = table->first_block;
+    while (true) {
+        struct TableEntry* existing = lalist_get(curr_block, sizeof(struct TableEntry), insert_index);
+        if (existing->is_used) {
+            if (string_equal(key, existing->key)) {
+                return false;
+            } else {
+                if (curr_block->next) {
+                    curr_block = curr_block->next;
+                } else {
+                    curr_block = lalist_grow(table->mem, curr_block, NULL);
+                }
+            }
+        } else {
+            existing->key = key;
+            existing->value = value;
+            existing->is_used = true;
+            return true;
         }
     }
-    entries[insert_index].key = key;
-    entries[insert_index].is_used = true;
-    entries[insert_index].value = value;
-    return true;
 }
 
 
 bool hash_table_set(struct HashTable* table, String key, uint64_t value) {
-    size_t set_index = key->hash % table->size;
-    struct TableEntry* entries = table->entries;
-    struct TableEntry* entry = &entries[set_index];
-    while (entry->is_used && entry->key->hash == key->hash) {
-        if (string_equal(key, entry->key)) {
-            entry->value = value;
-            return true;
+    size_t insert_index = key->hash % (LALIST_BLOCK_SIZE / sizeof(struct TableEntry));
+
+    LAList* curr_block = table->first_block;
+    while (true) {
+        struct TableEntry* existing = lalist_get(curr_block, sizeof(struct TableEntry), insert_index);
+        if (existing->is_used) {
+            if (string_equal(key, existing->key)) {
+                existing->key = key;
+                existing->value = value;
+                existing->is_used = true;
+                return true;
+            } else {
+                if (curr_block->next) {
+                    curr_block = curr_block->next;
+                } else {
+                    curr_block = lalist_grow(table->mem, curr_block, NULL);
+                }
+            }
+        } else {
+            return false;
         }
-        set_index++;
-        if (set_index == table->size) {
-            set_index = 0;
-        }
-        entry = &entries[set_index];
     }
-    return false;
 }
 
 
 bool hash_table_get(struct HashTable* table, String key, uint64_t* value_ptr) {
-    size_t get_index = key->hash % table->size;
-    struct TableEntry* entries = table->entries;
-    struct TableEntry entry = entries[get_index];
-    while (entry.is_used && entry.key->hash == key->hash) {
-        if (string_equal(key, entry.key)) {
-            *value_ptr = entry.value;
-            return true;
+    size_t insert_index = key->hash % (LALIST_BLOCK_SIZE / sizeof(struct TableEntry));
+
+    LAList* curr_block = table->first_block;
+    while (true) {
+        struct TableEntry* existing = lalist_get(curr_block, sizeof(struct TableEntry), insert_index);
+        if (existing->is_used) {
+            if (string_equal(key, existing->key)) {
+                *value_ptr = existing->value;
+                return true;
+            } else {
+                if (curr_block->next) {
+                    curr_block = curr_block->next;
+                } else {
+                    curr_block = lalist_grow(table->mem, curr_block, NULL);
+                }
+            }
+        } else {
+            return false;
         }
-        get_index++;
-        if (get_index == table->size) {
-            get_index = 0;
-        }
-        entry = entries[get_index];
     }
-    return false;
 }

@@ -1,92 +1,29 @@
-#include <stdlib.h>
-#include <string.h>
-
+#include "ojit_state.h"
 #include "asm_ir.h"
 
-void init_instruction_list(struct InstructionList* list, size_t capacity) {
-    list->array = malloc(sizeof(union InstructionIR) * capacity);
-    if (list->array == NULL) {
-        exit(-1);  // TODO memoery error
-    }
-    list->cap = capacity;
-    list->len = 0;
-}
 
-
-union InstructionIR* instruction_list_add_instruction(struct InstructionList* list) {
-    if (list->len >= list->cap) {
-        list->array = realloc(list->array, sizeof(union InstructionIR) * list->len * 2);
-    }
-    union InstructionIR* instr = &list->array[list->len++];
-
-    return instr;
-}
-
-
-#define VALUE_LIST_INIT_SIZE (4)
-
-void init_value_list(struct IRValueList* list, size_t item_count, IRValue* items) {
-    if (item_count) {
-        list->array = malloc(sizeof(union InstructionIR*) * item_count);
-        if (list->array == NULL) {
-            exit(-1);  // TODO memory exit
-        }
-        memcpy(list->array, items, sizeof(union InstructionIR*) * item_count);
-        list->cap = item_count;
-        list->len = item_count;
-    } else {
-        list->array = malloc(sizeof(union InstructionIR*) * VALUE_LIST_INIT_SIZE);
-        if (list->array == NULL) {
-            exit(-1);  // TODO memory exit
-        }
-        memcpy(list->array, items, sizeof(union InstructionIR*) * VALUE_LIST_INIT_SIZE);
-        list->cap = VALUE_LIST_INIT_SIZE;
-        list->len = 0;
-    }
-
-}
-
-void value_list_add_value(struct IRValueList* list, IRValue value) {
-    if (list->len >= list->cap) {
-        list->array = realloc(list->array, sizeof(union InstructionIR) * list->len * 2);
-    }
-    list->array[list->len++] = value;
-}
-
-void init_block(struct BlockIR* block, size_t block_num) {
-    init_instruction_list(&block->instrs, 8);
+void init_block(struct BlockIR* block, size_t block_num, MemCtx* ctx) {
+    block->first_instrs = block->last_instrs = lalist_grow(ctx, NULL, NULL);
     block->terminator.ir_base.id = ID_TERM_NONE;
-    init_hash_table(&block->variables, 36);
+    init_hash_table(&block->variables, ctx);
     block->block_num = block_num;
-
 }
 
-void init_block_list(struct BlockList* list, size_t capacity) {
-    list->array = malloc(sizeof(struct BlockIR) * capacity);
-    list->cap = capacity;
-    list->len = 0;
-}
-
-struct BlockIR* block_list_add_block(struct BlockList* list) {
-    if (list->len >= list->cap) {
-        list->cap = list->len*2;
-        list->array = realloc(list->array, sizeof(struct BlockIR) * list->cap);
-    }
-    size_t index = list->len++;
-    struct BlockIR* new_block = &list->array[index];
-    init_block(new_block, index);
-    return new_block;
-}
-
-struct FunctionIR* create_function(String name) {
-    struct FunctionIR* function = malloc(sizeof(struct FunctionIR));
-    init_block_list(&function->blocks, 8);
+struct FunctionIR* create_function(String name, MemCtx* ctx) {
+    struct FunctionIR* function = ojit_alloc(ctx, sizeof(struct FunctionIR));
+    function->first_blocks = function->last_blocks = lalist_grow(ctx, NULL, NULL);
     function->name = name;
+    function->num_blocks = 0;
 
-    block_list_add_block(&function->blocks);
+    function_add_block(function, ctx);
     return function;
 }
 
-struct BlockIR* function_add_block(struct FunctionIR* func) {
-    return block_list_add_block(&func->blocks);
+struct BlockIR* function_add_block(struct FunctionIR* func, MemCtx* ctx) {
+    if (func->last_blocks->len + sizeof(struct BlockIR) > LALIST_BLOCK_SIZE) {
+        func->last_blocks = lalist_grow(ctx, func->last_blocks, NULL);
+    }
+    struct BlockIR* block = lalist_add(func->last_blocks, sizeof(struct BlockIR));
+    init_block(block, func->num_blocks++, ctx);
+    return block;
 }

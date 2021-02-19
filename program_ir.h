@@ -4,19 +4,17 @@
 #include "string_tools/ojit_string.h"
 #include "hash_table/hash_table.h"
 #include "asm_ir.h"
+#include "compiler.h"
 
-struct s_ProgramIR {
-    struct StringTable strings;
-    struct HashTable function_table;
-};
-typedef struct s_ProgramIR ProgramIR;
+typedef struct s_CompilerManager CompilerManager;
 
-bool create_program_ir(ProgramIR* program);
-bool program_ir_add_function(ProgramIR* program, struct FunctionIR* func);
-bool program_ir_get_function(ProgramIR* program, String func_name, struct FunctionIR** func_loc);
-bool program_ir_get_function_r(ProgramIR* program, char* name, size_t name_len, struct FunctionIR** func_loc);
+CompilerManager* create_CompilerManager();
+bool CompilerManager_add_function(CompilerManager* program, struct FunctionIR* func);
+bool CompilerManager_get_function(CompilerManager* program, String func_name, struct FunctionIR** func_loc);
+bool CompilerManager_get_function_r(CompilerManager* program, char* name, size_t name_len, struct FunctionIR** func_loc);
+struct CompiledFunction CompilerManager_compile_function(CompilerManager* program, char* name, size_t name_len);
 
-String program_ir_read_file(ProgramIR* program_ir, char* file_name);
-void program_ir_parse_source(ProgramIR* program_ir, String source);
+String CompilerManager_read_file(CompilerManager* program, char* file_name);
+void CompilerManager_parse_source(CompilerManager* program, String source);
 
 #endif //OJIT_PROGRAM_IR_H

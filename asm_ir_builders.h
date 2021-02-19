@@ -2,14 +2,16 @@
 #define OJIT_ASM_IR_BUILDERS_H
 
 #include "asm_ir.h"
+#include "ojit_mem.h"
 
 // region IRBuilder
 struct IRBuilder {
     struct BlockIR* current_block;
     struct FunctionIR* function;
+    MemCtx* ir_mem;
 };
 
-struct IRBuilder* create_builder(struct FunctionIR* function_ir);
+struct IRBuilder* create_builder(struct FunctionIR* function_ir, MemCtx* ir_mem);
 struct BlockIR* builder_add_block(struct IRBuilder* builder);
 
 void builder_goto_block(struct IRBuilder* builder, struct BlockIR* block_ir);

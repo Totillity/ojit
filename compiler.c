@@ -1,22 +1,9 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include "ojit_err.h"
+#include "ojit_state.h"
 #include "compiler.h"
-
-// region Memory
-#include <windows.h>
-void* copy_to_executable(void* from, size_t len) {
-    SYSTEM_INFO info;
-    GetSystemInfo(&info);
-    void* mem = VirtualAlloc(NULL, info.dwPageSize, MEM_COMMIT, PAGE_READWRITE);
-    memcpy(mem, from, len);
-
-    DWORD dummy;
-    VirtualProtect(mem, len, PAGE_EXECUTE_READ, &dummy);
-
-    return mem;
-}
-// endregion
 
 
 // region Compilation
@@ -35,32 +22,23 @@ Register64 get_unused(const bool* registers) {
 // endregion
 
 
-struct MemBlock {
-    uint8_t* front_ptr;
-    struct MemBlock* next_block;
-    uint8_t mem[256];
-};
+//struct MemBlock {
+//    uint8_t* front_ptr;
+//    struct MemBlock* next_block;
+//    uint8_t mem[256];
+//};
 
 
 struct AssemblerState {
     uint8_t* front_ptr;
     bool used_registers[16];
-    struct MemBlock* block;
+    LAList* newest_block;
+    MemCtx* ctx;
 };
 
 
-struct MemBlock* add_mem_block(struct MemBlock* last_block) {
-    struct MemBlock* block = malloc(sizeof(struct MemBlock));
-    if (last_block) last_block->next_block = block;
-    block->next_block = NULL;
-    block->front_ptr = NULL;
-    memset(block->mem, 0, 256);
-    return block;
-}
-
-
-void init_asm_state(struct AssemblerState* state, struct MemBlock* block) {
-    state->front_ptr = &block->mem[256];
+void init_asm_state(struct AssemblerState* state, LAList* init_mem) {
+    state->front_ptr = &init_mem->mem[LALIST_BLOCK_SIZE];
 
     state->used_registers[RAX] = false;
     state->used_registers[RCX] = false;
@@ -79,7 +57,7 @@ void init_asm_state(struct AssemblerState* state, struct MemBlock* block) {
     state->used_registers[R14] = false;
     state->used_registers[R15] = false;
 
-    state->block = block;
+    state->newest_block = init_mem;
 }
 
 
@@ -151,17 +129,16 @@ void __attribute__((always_inline)) instr_assign_reg(union InstructionIR* instr,
     SET_REG(instr, reg);
 }
 
-size_t __attribute__((always_inline)) get_block_size(struct MemBlock* block) {
-    return 256 - (block->front_ptr - block->mem);
-}
+//size_t __attribute__((always_inline)) get_block_size(struct MemBlock* block) {
+//    return 256 - (block->front_ptr - block->mem);
+//}
 
-size_t __attribute__((always_inline)) check_block(struct AssemblerState* state) {
-    if (state->front_ptr - state->block->mem > 16) {
-        state->block->front_ptr = state->front_ptr;
-        size_t generated_amount = get_block_size(state->block);
-        state->block = add_mem_block(state->block);
-        state->front_ptr = &state->block->mem[256];
-        return generated_amount;
+size_t __attribute__((always_inline)) check_new_block(struct AssemblerState* state) {
+    if (state->front_ptr - state->newest_block->mem < (MAXIMUM_INSTRUCTION_SIZE + 1)) {
+        state->newest_block->len = LALIST_BLOCK_SIZE - (state->front_ptr - state->newest_block->mem);
+        state->newest_block = lalist_grow(state->ctx, NULL, state->newest_block);
+        state->front_ptr = &state->newest_block->mem[LALIST_BLOCK_SIZE];
+        return state->newest_block->len;
     }
     return 0;
 }
@@ -189,10 +166,15 @@ void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, 
     asm_emit_int32(0xEFBEADDE, state);  // comeback to this later after I've stitched everything together
     asm_emit_byte(0x89, state);
 
-    for (int k = 0; k < branch->arguments.len; k++) {
-        IRValue argument = branch->arguments.array[k];
-
-        struct ParameterIR* param = (struct ParameterIR*) &branch->target->instrs.array[k];
+    LAList* instrs = branch->target->first_instrs;
+    size_t instrs_index = 0;
+    for (int k = 0; k < branch->argument_count; k++) {
+        IRValue argument = branch->arguments[k];
+        if (instrs_index > (LALIST_BLOCK_SIZE - sizeof(IRValue))) {
+            instrs = instrs->next;
+        }
+        struct ParameterIR* param = (struct ParameterIR*) &instrs->mem[instrs_index];
+        instrs_index += sizeof(IRValue);
         if (param->base.id != ID_PARAMETER_IR) {
             printf("Too many arguments");
             exit(-1);  // TODO programmer error
@@ -405,7 +387,10 @@ void __attribute__((always_inline)) emit_terminator(union TerminatorIR* terminat
         case ID_BRANCH_IR: emit_branch(terminator_ir, state); break;
         case ID_TERM_NONE:
         default:
-            printf("Either Unimplemented or missing terminator");
+            ojit_new_error();
+            ojit_build_error_chars("Either Unimplemented or missing terminator: ID ");
+            ojit_build_error_int(terminator_ir->ir_base.id);
+            ojit_error();
             exit(-1); // TODO programmer error
     }
 }
@@ -424,47 +409,97 @@ void __attribute__((always_inline)) emit_instruction(union InstructionIR* instru
 
 struct BlockRecord {
     size_t offset;
-    struct MemBlock* end_mem;
+    LAList* last_block;
 };
 
 
-struct CompiledFunction compile_function(struct FunctionIR* func) {
+struct CompiledFunction compile_function(CState* cstate, struct FunctionIR* func) {
     struct AssemblerState state;
+    state.ctx = cstate->compiler_mem;
 
     size_t generated_size = 0;
-    struct BlockRecord* block_records = calloc(func->blocks.len, sizeof(struct BlockRecord));
+    struct BlockRecord* block_records = ojit_alloc(cstate->compiler_mem, sizeof(struct BlockRecord) * func->num_blocks);
+    LAListIter block_iter;
+    lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
+    struct BlockIR* block = lalist_iter_next(&block_iter);
+    int i = 0;
     // start from the first block so entry is always first
-    for (size_t i = 0; i < func->blocks.len; i++) {
-        struct BlockIR* block = &func->blocks.array[i];
-        struct MemBlock* block_mem_block = add_mem_block(NULL);
+    while (i < func->num_blocks) {
+        LAList* init_mem = lalist_grow(cstate->compiler_mem, NULL, NULL);
         block_records[i].offset = generated_size;
-        block_records[i].end_mem = block_mem_block;
-        init_asm_state(&state, block_mem_block);
+        block_records[i].last_block = init_mem;
+        init_asm_state(&state, init_mem);
 
         emit_terminator(&block->terminator, &state);
-        generated_size += check_block(&state);
-        for (size_t j = block->instrs.len; j > 0; j--) {
-            emit_instruction(&block->instrs.array[j-1], &state);
-            generated_size += check_block(&state);
+        generated_size += check_new_block(&state);
+
+        LAListIter instr_iter;
+        lalist_init_iter(&instr_iter, block->last_instrs, sizeof(union InstructionIR));
+        lalist_iter_position(&instr_iter, block->last_instrs->len - sizeof(union InstructionIR)); // TODO does this need to happen every time this advances blocks?
+        union InstructionIR* instr = lalist_iter_prev(&instr_iter);
+        int k = 0;
+        while (instr) {
+            emit_instruction(instr, &state);
+            generated_size += check_new_block(&state);
+            instr = lalist_iter_prev(&instr_iter);
+            k += 1;
         }
-        state.block->front_ptr = state.front_ptr;
-        generated_size += get_block_size(state.block);
+        state.newest_block->len = LALIST_BLOCK_SIZE - (state.front_ptr - state.newest_block->mem);
+        generated_size += state.newest_block->len;
+
+        block = lalist_iter_next(&block_iter);
+        i++;
     }
-
-    uint8_t* func_mem = malloc(generated_size);
+    uint8_t* func_mem = ojit_alloc(cstate->compiler_mem, generated_size);
     uint8_t* write_ptr = func_mem + generated_size;
-    for (size_t i = func->blocks.len; i > 0; i--) {
-        struct BlockRecord record = block_records[i-1];
-        struct MemBlock* curr_block = record.end_mem;
-        while (curr_block) {
-            size_t block_size = get_block_size(curr_block);
-            write_ptr -= block_size;
-            memcpy(write_ptr, curr_block->front_ptr, block_size);
 
-            curr_block = curr_block->next_block;
+    lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
+    block = lalist_iter_prev(&block_iter);
+    while (block) {
+        struct BlockRecord record = block_records[block->block_num];
+        LAList* curr_block = record.last_block;
+        while (curr_block) {
+            size_t block_size = curr_block->len;
+            write_ptr -= block_size;
+            ojit_memcpy(write_ptr, curr_block->mem + (LALIST_BLOCK_SIZE - block_size), block_size);
+
+            curr_block = curr_block->prev;
         }
+        block = lalist_iter_prev(&block_iter);
     }
 
     return (struct CompiledFunction) {func_mem, generated_size};
 }
+
+#ifdef WIN32
+#include <windows.h>
+void* copy_to_executable(void* from, size_t len) {
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    void* mem = VirtualAlloc(NULL, info.dwPageSize, MEM_COMMIT, PAGE_READWRITE);
+    if (mem == NULL) {
+        ojit_new_error();
+        ojit_build_error_chars("Failed to move generated code to executable memory.\n");
+        ojit_error();
+        exit(0);
+    }
+    memcpy(mem, from, len);
+
+    DWORD dummy;
+    bool success = VirtualProtect(mem, len, PAGE_EXECUTE_READ, &dummy);
+    if (!success) {
+        ojit_new_error();
+        ojit_build_error_chars("Failed to move generated code to executable memory.\n");
+        ojit_error();
+        exit(0);
+    }
+
+    return mem;
+}
+#else
+#warning Executing jited code is currently unsupported on platforms other than Windows.
+void* copy_to_executable(CState* bstate, void* from, size_t len) {
+    ojit_fatal_error(bstate->error, "Executing jit'ed code is currently unsupported on platforms other than Windows.\n");
+}
+#endif
 // endregion

@@ -1,9 +1,6 @@
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-
 #include "lexer.h"
 #include "../string_tools/ojit_trie.h"
+#include "../ojit_err.h"
 
 struct Lexer {
         struct StringTable* table_ptr;
@@ -108,32 +105,12 @@ void init_trie() {
 }
 
 
-void print_token(Token token) {
-    char* text_buf = malloc(token.text->length+1);
-    memcpy(text_buf, token.text->start_ptr, token.text->length);
-    text_buf[token.text->length] = '\0';
-    printf("TOKEN(type: %s, text: '%s')\n", type_names[token.type], text_buf);
-}
-
-struct Lexer* create_lexer(struct StringTable* table_ptr, String source) {
-    struct Lexer* lexer = malloc(sizeof(struct Lexer));
-    lexer->table_ptr = table_ptr;
-
-    if (basic_token_trie_root == NULL) {
-        init_trie();
-    }
-
-    lexer->keywords[TOKEN_DEF] = string_table_add(lexer->table_ptr, "def", 3);
-    lexer->keywords[TOKEN_RETURN] = string_table_add(lexer->table_ptr, "return", 6);
-    lexer->keywords[TOKEN_LET] = string_table_add(lexer->table_ptr, "let", 3);
-
-    lexer->source = source;
-    lexer->start = source->start_ptr;
-    lexer->curr = source->start_ptr;
-    lexer->is_next_lexed = false;
-
-    return lexer;
-}
+//void print_token(Token token) {
+//    char* text_buf = malloc(token.text->length+1);
+//    memcpy(text_buf, token.text->start_ptr, token.text->length);
+//    text_buf[token.text->length] = '\0';
+//    printf("TOKEN(type: %s, text: '%s')\n", type_names[token.type], text_buf);
+//}
 
 #define IS_ALPHA(chr) (('a' <= (chr) && (chr) <= 'z') || ('A' <= (chr) && (chr) <= 'Z') || ((chr) == '_'))
 #define IS_NUM(chr) ('0' <= (chr) && (chr) <= '9')
@@ -230,12 +207,14 @@ Token lexer_peek_token(struct Lexer* lexer) {
         } else if (lexer_at_end(lexer)) {  // TODO find a more efficient way to do this and fold these two copies
             return lexer_emit_token(lexer, TOKEN_EOF);
         } else {
-            printf("Error: Unrecognized character '%c' (0x%02x).\n", curr, curr);
-            exit(-1);  // TODO exception handling
+            ojit_error();
+            ojit_build_error_chars("Error: Unrecognized character ");
+            ojit_build_error_char(curr);
+            ojit_error();
+            exit(0);
         }
     }
 }
-
 
 Token lexer_next_token(struct Lexer* lexer) {
     Token token = lexer_peek_token(lexer);
@@ -246,4 +225,24 @@ Token lexer_next_token(struct Lexer* lexer) {
 
 char* get_token_name(enum TokenType type) {
     return type_names[type];
+}
+
+struct Lexer* create_lexer(struct StringTable* table_ptr, String source, MemCtx* ctx) {
+    struct Lexer* lexer = ojit_alloc(ctx, sizeof(struct Lexer));
+    lexer->table_ptr = table_ptr;
+
+    if (basic_token_trie_root == NULL) {
+        init_trie();
+    }
+
+    lexer->keywords[TOKEN_DEF] = string_table_add(lexer->table_ptr, "def", 3);
+    lexer->keywords[TOKEN_RETURN] = string_table_add(lexer->table_ptr, "return", 6);
+    lexer->keywords[TOKEN_LET] = string_table_add(lexer->table_ptr, "let", 3);
+
+    lexer->source = source;
+    lexer->start = source->start_ptr;
+    lexer->curr = source->start_ptr;
+    lexer->is_next_lexed = false;
+
+    return lexer;
 }

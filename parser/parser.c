@@ -1,16 +1,14 @@
-#include <stdio.h>
-#include <stdlib.h>
-
 #include "parser.h"
-#include "lexer.h"
 #include "../asm_ir_builders.h"
 #include "../string_tools/ojit_trie.h"
+#include "../ojit_err.h"
 
 
 typedef struct s_Parser {
     struct Lexer* lexer;
     struct IRBuilder* builder;
     struct HashTable* func_table;
+    MemCtx* ir_mem;
 } Parser;
 
 
@@ -32,8 +30,13 @@ Token parser_expect(Parser* parser, enum TokenType type) {
     if (token.type == type) {
         return token;
     } else {
-        printf("Error: Expected %s, got %s", get_token_name(type), get_token_name(token.type));
-        exit(-1);    // TODO exception handling
+        ojit_new_error();
+        ojit_build_error_chars("Error: Expected ");
+        ojit_build_error_chars(get_token_name(type));
+        ojit_build_error_chars(", got ");
+        ojit_build_error_chars(get_token_name(token.type));
+        ojit_error();
+        exit(0);
     }
 }
 
@@ -48,8 +51,10 @@ String get_lvalue(ExpressionValue value) {
     if (value.also_lvalue) {
         return value.lvalue;
     } else {
-        printf("Attempted to access the lvalue of something which doesn't have one");
-        exit(-1);    // TODO programmer error
+        ojit_new_error();
+        ojit_build_error_chars("Attempted to access the lvalue of something which doesn't have one");
+        ojit_error();
+        exit(0);
     }
 }
 #ifdef SKIP_LVALUE_CHECK
@@ -96,8 +101,11 @@ ExpressionValue parse_terminal(Parser* parser, bool lvalue) {
             return WRAP_RVALUE(expr);
         }
         default: {
-            printf("Unexpected token: %s", get_token_name(curr.type));
-            exit(-1); // TODO error handling
+            ojit_new_error();
+            ojit_build_error_chars("Unexpected token: ");
+            ojit_build_error_chars(get_token_name(curr.type));
+            ojit_error();
+            exit(0);
         }
     }
 }
@@ -193,8 +201,8 @@ void parse_function(Parser* parser) {
     parser_expect(parser, TOKEN_DEF);
 
     Token name = parser_expect(parser, TOKEN_IDENT);
-    struct FunctionIR* func = create_function(name.text);
-    parser->builder = create_builder(func);
+    struct FunctionIR* func = create_function(name.text, parser->ir_mem);
+    parser->builder = create_builder(func, parser->ir_mem);
 
     parser_expect(parser, TOKEN_LEFT_PAREN);
     // TODO arguments
@@ -222,20 +230,25 @@ void parser_parse_source(Parser* parser) {
                 break;
             }
             default: {
-                printf("Expected 'def', got %s with text %s", get_token_name(curr_token.type), null_terminate_string(curr_token.text));
-                exit(-1); // TODO exception handling
+                ojit_new_error();
+                ojit_build_error_chars("Expected 'def', got ");
+                ojit_build_error_chars(get_token_name(curr_token.type));
+                ojit_build_error_chars(" with text ");
+                ojit_build_error_String(curr_token.text);
+                ojit_error();
+                exit(0);
             }
         }
         curr_token = lexer_peek_token(lexer);
     }
 }
 
-
-Parser* create_parser(struct Lexer* lexer, struct HashTable* function_table) {
-    Parser* parser = malloc(sizeof(Parser));
+Parser* create_parser(struct Lexer* lexer, struct HashTable* function_table, MemCtx* mem) {
+    Parser* parser = ojit_alloc(mem, sizeof(Parser));
     parser->lexer = lexer;
     parser->builder = NULL;
     parser->func_table = function_table;
+    parser->ir_mem = mem;
     return parser;
 }
 

@@ -1,6 +1,15 @@
 def main() {
-    let a = 1;
-    let b = 2;
-    let c = a + b;
-    return c - 42;
+    let a1 = 3;
+    let a2 = a1 + 3;
+    let a3 = a2 + 3;
+    let a4 = a3 + 3;
+    let a5 = a4 + 3;
+    let a6 = a5 + 3;
+    let a7 = a6 + 3;
+    let a8 = a7 + 3;
+    let a9 = a8 + 3;
+    let a10 = a9 + 3;
+    let a11 = a10 + 3;
+    let a12 = a11 + 3;
+    return a12 + 3;
 }

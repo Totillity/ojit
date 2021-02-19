@@ -1,25 +1,29 @@
 #include <stdio.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdlib.h>
+#include <sys/time.h>
 
 //#include "parser/parser.h"
 #include "program_ir.h"
-#include "compiler.h"
-
 
 typedef int (*FuncType)();
 
 
-int main() {
-    ProgramIR program_ir;
-    create_program_ir(&program_ir);
+double time_function(FuncType func) {
+    int iterations = 100000;
+    struct timespec start, end;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    for (int i = 0; i < iterations; i++) {
+        func();
+    }
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    double time_in_nsec = (end.tv_sec - start.tv_sec) * 1e9 + (end.tv_nsec - start.tv_nsec);
+    return time_in_nsec / iterations;
+}
 
-    String source = program_ir_read_file(&program_ir, "test.txt");
-    program_ir_parse_source(&program_ir, source);
-    struct FunctionIR* main;
-    program_ir_get_function_r(&program_ir, "main", 4, &main);
 
+
+//    for (int i = 0; i < main->blocks.len; i++) {
+//        struct BlockIR* item = main->blocks.array[i];
+//    }
 
 //    // region Construct IR
 //    struct FunctionIR* function = create_function(STRING("main"));
@@ -39,13 +43,22 @@ int main() {
 //    block_terminate_Return(end, added);
 //    // endregion
 
-    struct CompiledFunction compiled = compile_function(main);
+int main() {
+    CompilerManager* program_ir = create_CompilerManager();
+
+    String source = CompilerManager_read_file(program_ir, "test.txt");
+    CompilerManager_parse_source(program_ir, source);
+
+    struct CompiledFunction compiled = CompilerManager_compile_function(program_ir, "main", 4);
     for (int i = 0; i < compiled.size; i++ ) {
         printf("%02x", compiled.mem[i]);
     }
     printf("\n");
 
     FuncType func = (FuncType) copy_to_executable(compiled.mem, compiled.size);
+
+    printf("Single time in nsec: %f\n", time_function(func));
+
     printf("Value: %i\n", func());
 
     return 0;

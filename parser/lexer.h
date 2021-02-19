@@ -55,7 +55,7 @@ typedef struct Token_s {
 
 struct Lexer;
 
-struct Lexer* create_lexer(struct StringTable* table_ptr, String source);
+struct Lexer* create_lexer(struct StringTable* table_ptr, String source, MemCtx* ctx);
 
 Token lexer_peek_token(struct Lexer* lexer);
 Token lexer_next_token(struct Lexer* lexer);

@@ -1,7 +1,8 @@
 #ifndef OJIT_ASM_IR_H
 #define OJIT_ASM_IR_H
 
-#include <stdint.h>
+#include "ojit_def.h"
+#include "ojit_mem.h"
 
 #include "string_tools/ojit_string.h"
 #include "hash_table/hash_table.h"
@@ -111,27 +112,6 @@ union InstructionIR {
 };
 
 typedef union InstructionIR* IRValue;
-
-
-struct InstructionList {
-    union InstructionIR* array;
-    size_t cap;
-    size_t len;
-};
-
-void init_instruction_list(struct InstructionList* list, size_t capacity);
-union InstructionIR* instruction_list_add_instruction(struct InstructionList* list);
-// endregion
-
-// region IRValueList
-struct IRValueList {
-    union InstructionIR** array;
-    size_t cap;
-    size_t len;
-};
-
-void init_value_list(struct IRValueList* list, size_t item_count, IRValue* items);
-void value_list_add_value(struct IRValueList* list, IRValue value);
 // endregion
 
 // region Terminator Base
@@ -153,11 +133,8 @@ struct ReturnIR {
 struct BranchIR {
     struct TerminatorBase base;
     struct BlockIR* target;
-    struct IRValueList arguments;
-
-    size_t offset_from_end;
-    struct BranchIR* next_listener;
-    struct BlockIR* in_block;
+    IRValue* arguments;
+    size_t argument_count;
 };
 
 union TerminatorIR {
@@ -169,37 +146,26 @@ union TerminatorIR {
 
 // region Block
 struct BlockIR {
-    struct InstructionList instrs;
+    LAList* first_instrs;
+    LAList* last_instrs;
     union TerminatorIR terminator;
     struct HashTable variables;
     size_t block_num;
 };
 
-
-void init_block(struct BlockIR* block, size_t block_num);
-// endregion
-
-// region BlockList
-struct BlockList {
-    struct BlockIR* array;
-    size_t cap;
-    size_t len;
-};
-
-
-void init_block_list(struct BlockList* list, size_t capacity);
-struct BlockIR* block_list_add_block(struct BlockList* list);
+void init_block(struct BlockIR* block, size_t block_num, MemCtx* ctx);
 // endregion
 
 // region Function
 struct FunctionIR {
     String name;
-    struct BlockList blocks;
+    LAList* first_blocks;
+    LAList* last_blocks;
+    size_t num_blocks;
 };
 
-#define GET_BLOCK(func_ptr, n) (&((func_ptr)->blocks.array[(n)]))
-struct FunctionIR* create_function(String name);
-struct BlockIR* function_add_block(struct FunctionIR* func);
+struct FunctionIR* create_function(String name, MemCtx* ctx);
+struct BlockIR* function_add_block(struct FunctionIR* func, MemCtx* ctx);
 // endregion Function
 
 
