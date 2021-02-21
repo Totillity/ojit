@@ -138,7 +138,6 @@ void __attribute__((always_inline)) unmark_register(Register64 reg, struct Assem
 }
 
 union InstructionIR* __attribute__((always_inline)) instr_ensure(union InstructionIR* instr, struct AssemblerState* state) {
-//    bool* registers_state = state.used_registers;
     if (IS_PARAM_REG(GET_REG(instr))) {
         SET_REG(instr, NORMALIZE_REG(GET_REG(instr)));
         mark_register(GET_REG(instr), state);
@@ -238,55 +237,6 @@ void __attribute__((always_inline)) emit_int(union InstructionIR* instruction, s
         unmark_register(instr->base.reg, state);
     }
 }
-
-
-//void __attribute__((always_inline)) bin_op_registers() {
-//    bool a_assigned = IS_ASSIGNED(a_register);
-//    bool b_assigned = IS_ASSIGNED(b_register);
-//
-//    if (a_assigned && b_assigned) {
-//        // we need to copy a into primary_reg, then add b into it
-//        asm_emit_add_r64_r64(this_reg, b_register, state);
-//        asm_emit_mov_r64_r64(this_reg, a_register, state);
-//    } else {
-//        Register64 primary_reg;  // the register we add into to get the result
-//        Register64 secondary_reg; // the register we add in
-//
-//        if (a_assigned) {
-//            // use b as our primary register which is added into and contains the result
-//            // after all, this is b's last (or first) use, so it's safe
-//            instr_assign_reg(instr->b, this_reg);
-//            mark_register(this_reg, state);
-//            primary_reg = this_reg;
-//            secondary_reg = a_register;
-//        } else if (b_assigned) {
-//            // use a as our primary register which is added into and contains the result
-//            // after all, this is a's last (or first) use, so it's safe
-//            instr_assign_reg(instr->a, this_reg);
-//            mark_register(this_reg, state);
-//            primary_reg = this_reg;
-//            secondary_reg = b_register;
-//        } else {
-//            // use a as our primary register which is added into and contains the result
-//            // after all, this is a's last (or first) use, so it's safe
-//            instr_assign_reg(instr->a, this_reg);
-//            mark_register(this_reg, state);
-//
-//            // now find a register to put b into
-//            Register64 new_reg = get_unused(state->used_registers);
-//            if (new_reg == NO_REG) {
-//                printf("Too many registers used concurrently");
-//                exit(-1); // TODO spill
-//            }
-//            instr_assign_reg(instr->b, new_reg);
-//            mark_register(new_reg, state);
-//
-//            primary_reg = this_reg;
-//            secondary_reg = new_reg;
-//        }
-//        asm_emit_add_r64_r64(primary_reg, secondary_reg, state);
-//    }
-//}
 
 void __attribute__((always_inline)) emit_add(union InstructionIR* instruction, struct AssemblerState* state) {
     struct AddIR* instr = &instruction->ir_add;
@@ -447,8 +397,27 @@ struct CompiledFunction compile_function(CState* cstate, struct FunctionIR* func
     LAListIter block_iter;
     lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
     struct BlockIR* block = lalist_iter_next(&block_iter);
-    int i = 0;
     // start from the first block so entry is always first
+    LAListIter instr_iter;
+    union InstructionIR* instr;
+    lalist_init_iter(&instr_iter, block->first_instrs, sizeof(union InstructionIR));
+    instr = lalist_iter_next(&instr_iter);
+    int param_num = 0;
+    while (instr && instr->base.id == ID_PARAMETER_IR) {
+        enum Register64 reg;
+        switch (param_num) {
+            case 0: reg = RCX; break;
+            case 1: reg = RDX; break;
+            case 2: reg = R8; break;
+            case 3: reg = R9; break;
+            default: exit(-1);  // TODO
+        }
+        instr_assign_reg(instr, AS_PARAM_REG(reg));
+        param_num += 1;
+        instr = lalist_iter_next(&instr_iter);
+    }
+
+    int i = 0;
     while (i < func->num_blocks) {
         LAList* init_mem = lalist_grow(cstate->compiler_mem, NULL, NULL);
         block_records[i].offset = generated_size;
@@ -458,10 +427,10 @@ struct CompiledFunction compile_function(CState* cstate, struct FunctionIR* func
         emit_terminator(&block->terminator, &state);
         generated_size += check_new_block(&state);
 
-        LAListIter instr_iter;
+
         lalist_init_iter(&instr_iter, block->last_instrs, sizeof(union InstructionIR));
         lalist_iter_position(&instr_iter, block->last_instrs->len - sizeof(union InstructionIR));
-        union InstructionIR* instr = lalist_iter_prev(&instr_iter);
+        instr = lalist_iter_prev(&instr_iter);
         int k = 0;
         while (instr) {
             emit_instruction(instr, &state);
@@ -518,6 +487,9 @@ void* copy_to_executable(void* from, size_t len) {
         ojit_error();
         exit(0);
     }
+
+    // b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8c3
+    // b8030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8c3
 
     return mem;
 }

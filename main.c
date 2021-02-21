@@ -4,15 +4,15 @@
 //#include "parser/parser.h"
 #include "program_ir.h"
 
-typedef int (*FuncType)();
+typedef int (*FuncType)(int);
 
 
-double time_function(FuncType func) {
+double time_function(FuncType func, int arg) {
     int iterations = 100000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     for (int i = 0; i < iterations; i++) {
-        func();
+        func(arg);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     double time_in_nsec = (end.tv_sec - start.tv_sec) * 1e9 + (end.tv_nsec - start.tv_nsec);
@@ -57,9 +57,9 @@ int main() {
 
     FuncType func = (FuncType) copy_to_executable(compiled.mem, compiled.size);
 
-    printf("Single time in nsec: %f\n", time_function(func));
+    printf("Single time in nsec: %f\n", time_function(func, 3));
 
-    printf("Value: %i\n", func());
+    printf("Value: %i\n", func(3));
 
     return 0;
 }

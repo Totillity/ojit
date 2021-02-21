@@ -38,16 +38,14 @@ IRValue builder_add_parameter(struct IRBuilder* builder) {
 
 IRValue builder_add_variable(struct IRBuilder* builder, String var_name, IRValue init_value) {
     bool was_set = hash_table_insert(&builder->current_block->variables, var_name, (uint64_t) init_value);
-    OJIT_ASSERT(was_set, "");
+    OJIT_ASSERT(was_set, "e");
     return init_value;
 }
 
 
 IRValue builder_set_variable(struct IRBuilder* builder, String var_name, IRValue value) {
     bool was_set = hash_table_set(&builder->current_block->variables, var_name, (uint64_t) value);
-    if (!was_set) {
-        ojit_error("Variable already exists");
-    }
+    OJIT_ASSERT(was_set, "Variable already exists");
     return value;
 }
 
@@ -55,10 +53,7 @@ IRValue builder_set_variable(struct IRBuilder* builder, String var_name, IRValue
 IRValue builder_get_variable(struct IRBuilder* builder, String var_name) {
     IRValue value = NULL;
     bool was_get = hash_table_get(&builder->current_block->variables, var_name, (uint64_t*) &value);
-    if (!was_get) {
-        ojit_error("Variable does not exist");
-    }
-    // TODO
+    OJIT_ASSERT(was_get, "Variable does not exist");
     return value;
 }
 

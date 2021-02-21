@@ -202,10 +202,20 @@ void parse_function(Parser* parser) {
 
     Token name = parser_expect(parser, TOKEN_IDENT);
     struct FunctionIR* func = create_function(name.text, parser->ir_mem);
-    parser->builder = create_builder(func, parser->ir_mem);
+    struct IRBuilder* builder = parser->builder = create_builder(func, parser->ir_mem);
 
     parser_expect(parser, TOKEN_LEFT_PAREN);
-    // TODO arguments
+    while (!parser_peek_is(parser, TOKEN_RIGHT_PAREN)) {
+        Token param_name = parser_expect(parser, TOKEN_IDENT);
+        IRValue param = builder_add_parameter(builder);
+        builder_add_variable(builder, param_name.text, param);
+        if (parser_peek_is(parser, TOKEN_COMMA)) {
+            parser_expect(parser, TOKEN_COMMA);
+            continue;
+        } else {
+            break;
+        }
+    }
     parser_expect(parser, TOKEN_RIGHT_PAREN);
 
     parser_expect(parser, TOKEN_LEFT_BRACE);
