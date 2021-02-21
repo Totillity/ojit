@@ -1,4 +1,3 @@
-//#include <stdlib.h>
 #include <string.h>
 
 #include "../string_tools/ojit_string.h"

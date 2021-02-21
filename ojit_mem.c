@@ -113,7 +113,7 @@ void* lalist_iter_prev(LAListIter* iter) {
     void* item = &iter->curr_list->mem[iter->curr_index];
     if (iter->curr_index < iter->item_size) {
         iter->curr_list = iter->curr_list->prev;
-        iter->curr_index = LALIST_BLOCK_SIZE - iter->item_size;
+        if (iter->curr_list) iter->curr_index = iter->curr_list->len - iter->item_size;
     } else {
         iter->curr_index -= iter->item_size;
     }

@@ -10,9 +10,6 @@
 #define MAXIMUM_INSTRUCTION_SIZE (15)
 
 // region Utility Functions & Macros
-#define REX(w, r, x, b) ((uint8_t) (0b01000000 | ((w) << 3) | ((r) << 2) | ((x) << 1) | ((b))))
-#define MODRM(mod, reg, rm) (((mod) << 6) | ((reg) << 3) | (rm))
-
 Register64 get_unused(const bool* registers) {
     for (int i = 0; i < 16; i++) {
         if (!registers[i]) return i;
@@ -67,11 +64,29 @@ void init_asm_state(struct AssemblerState* state, LAList* init_mem) {
 
 
 // region asm utility
+#define REX(w, r, x, b) ((uint8_t) (0b01000000 | ((w) << 3) | ((r) << 2) | ((x) << 1) | ((b))))
+#define MODRM(mod, reg, rm) (((mod) << 6) | ((reg) << 3) | (rm))
+
 void __attribute__((always_inline)) asm_emit_byte(uint8_t byte, struct AssemblerState* state) {
     *(--state->front_ptr) = byte;
 }
 
+void __attribute__((always_inline)) asm_emit_int8(uint8_t constant, struct AssemblerState* state) {
+    asm_emit_byte(constant, state);
+}
+
 void __attribute__((always_inline)) asm_emit_int32(uint32_t constant, struct AssemblerState* state) {
+    asm_emit_byte((constant >> 24) & 0xFF, state);
+    asm_emit_byte((constant >> 16) & 0xFF, state);
+    asm_emit_byte((constant >>  8) & 0xFF, state);
+    asm_emit_byte((constant >>  0) & 0xFF, state);
+}
+
+void __attribute__((always_inline)) asm_emit_int64(uint64_t constant, struct AssemblerState* state) {
+    asm_emit_byte((constant >> 56) & 0xFF, state);
+    asm_emit_byte((constant >> 48) & 0xFF, state);
+    asm_emit_byte((constant >> 40) & 0xFF, state);
+    asm_emit_byte((constant >> 32) & 0xFF, state);
     asm_emit_byte((constant >> 24) & 0xFF, state);
     asm_emit_byte((constant >> 16) & 0xFF, state);
     asm_emit_byte((constant >>  8) & 0xFF, state);
@@ -84,15 +99,22 @@ void __attribute__((always_inline)) asm_emit_mov_r64_r64(Register64 dest, Regist
     asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
 }
 
-void __attribute__((always_inline)) asm_emit_mov_r64_i32(Register64 dest, uint32_t constant, struct AssemblerState* state) {
-    asm_emit_int32(constant, state);
-    asm_emit_byte(MODRM(0b11, 0b000, dest & 0b0111), state);
-    asm_emit_byte(0xC7, state);
-    asm_emit_byte(REX(0b1, 0b0, 0b0, dest >> 3 & 0b0001), state);
+void __attribute__((always_inline)) asm_emit_mov_r64_i64(Register64 dest, uint64_t constant, struct AssemblerState* state) {
+    if (constant <= UINT32_MAX) {
+        asm_emit_int32(constant, state);
+        asm_emit_byte(0xB8 + (dest & 0b0111), state);
+        if (dest & 0b1000) {
+            asm_emit_byte(REX(0b0, 0b0, 0b0, dest >> 3 & 0b0001), state);
+        }
+    } else {
+        asm_emit_int64(constant, state);
+        asm_emit_byte(0xB8 + (dest & 0b0111), state);
+        asm_emit_byte(REX(0b1, 0b0, 0b0, dest >> 3 & 0b0001), state);
+    }
 }
 
 void __attribute__((always_inline)) asm_emit_add_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
-    asm_emit_byte(MODRM(0b11, source & 0b111, dest & 0b0111), state);
+    asm_emit_byte(MODRM(0b11, source & 0b0111, dest & 0b0111), state);
     asm_emit_byte(0x01, state);
     asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
 }
@@ -212,7 +234,7 @@ void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, 
 void __attribute__((always_inline)) emit_int(union InstructionIR* instruction, struct AssemblerState* state) {
     struct IntIR* instr = &instruction->ir_int;
     if (IS_ASSIGNED(GET_REG(instr))) {
-        asm_emit_mov_r64_i32(GET_REG(instr), instr->constant, state);
+        asm_emit_mov_r64_i64(GET_REG(instr), instr->constant, state);
         unmark_register(instr->base.reg, state);
     }
 }
@@ -402,8 +424,11 @@ void __attribute__((always_inline)) emit_instruction(union InstructionIR* instru
         case ID_SUB_IR: emit_sub(instruction_ir, state); break;
         case ID_PARAMETER_IR: break;
         default:
-            printf("Broken or Unimplemented instruction");
-            exit(-1);  // TODO programmer error
+            ojit_new_error();
+            ojit_build_error_chars("Broken or Unimplemented instruction: ");
+            ojit_build_error_int(instruction_ir->base.id);
+            ojit_error();
+            exit(-1);
     }
 }
 
@@ -435,7 +460,7 @@ struct CompiledFunction compile_function(CState* cstate, struct FunctionIR* func
 
         LAListIter instr_iter;
         lalist_init_iter(&instr_iter, block->last_instrs, sizeof(union InstructionIR));
-        lalist_iter_position(&instr_iter, block->last_instrs->len - sizeof(union InstructionIR)); // TODO does this need to happen every time this advances blocks?
+        lalist_iter_position(&instr_iter, block->last_instrs->len - sizeof(union InstructionIR));
         union InstructionIR* instr = lalist_iter_prev(&instr_iter);
         int k = 0;
         while (instr) {

@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-#define LALIST_BLOCK_SIZE (1024)
+#define LALIST_BLOCK_SIZE (500)
 
 typedef struct s_OJITMemCtx MemCtx;
 MemCtx* create_mem_ctx();
