@@ -8,7 +8,7 @@
 
 typedef struct s_CompilerManager CompilerManager;
 
-CompilerManager* create_CompilerManager();
+CompilerManager* create_CompilerManager(struct HashTable* functions);
 bool CompilerManager_add_function(CompilerManager* program, struct FunctionIR* func);
 bool CompilerManager_get_function(CompilerManager* program, String func_name, struct FunctionIR** func_loc);
 bool CompilerManager_get_function_r(CompilerManager* program, char* name, size_t name_len, struct FunctionIR** func_loc);

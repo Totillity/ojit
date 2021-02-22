@@ -12,3 +12,8 @@ def main(a1) {
     let a12 = a11 + 3;
     return a12 + 3;
 }
+
+
+def other(a2) {
+    return a2 + 3;
+}

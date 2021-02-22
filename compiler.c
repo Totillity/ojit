@@ -388,7 +388,7 @@ struct BlockRecord {
 };
 
 
-struct CompiledFunction compile_function(CState* cstate, struct FunctionIR* func) {
+struct CompiledFunction ojit_compile_function(CState* cstate, struct FunctionIR* func) {
     struct AssemblerState state;
     state.ctx = cstate->compiler_mem;
 
@@ -487,9 +487,6 @@ void* copy_to_executable(void* from, size_t len) {
         ojit_error();
         exit(0);
     }
-
-    // b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8c3
-    // b8030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8b9030000004801c8c3
 
     return mem;
 }

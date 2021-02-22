@@ -1,8 +1,7 @@
 #include <stdio.h>
 #include <sys/time.h>
 
-//#include "parser/parser.h"
-#include "program_ir.h"
+#include "jit_interpreter.h"
 
 typedef int (*FuncType)(int);
 
@@ -44,22 +43,20 @@ double time_function(FuncType func, int arg) {
 //    // endregion
 
 int main() {
-    CompilerManager* program_ir = create_CompilerManager();
-
-    String source = CompilerManager_read_file(program_ir, "test.txt");
-    CompilerManager_parse_source(program_ir, source);
-
-    struct CompiledFunction compiled = CompilerManager_compile_function(program_ir, "main", 4);
-    for (int i = 0; i < compiled.size; i++ ) {
-        printf("%02x", compiled.mem[i]);
-    }
-    printf("\n");
-
-    FuncType func = (FuncType) copy_to_executable(compiled.mem, compiled.size);
-
-    printf("Single time in nsec: %f\n", time_function(func, 3));
-
-    printf("Value: %i\n", func(3));
+    JIT* jit = ojit_create_jit();
+    jit_add_file(jit, "test.txt");
+    JITFunc main_func = jit_get_function(jit, "main", 4);
+    int res = jit_call_function(jit, main_func, FuncType, 3);
+//    for (int i = 0; i < compiled.size; i++ ) {
+//        printf("%02x", compiled.mem[i]);
+//    }9
+//    printf("\n");
+//
+//    FuncType func = (FuncType) copy_to_executable(compiled.mem, compiled.size);
+//
+//    printf("Single time in nsec: %f\n", time_function(func, 3));
+//
+    printf("Value: %i\n", res);
 
     return 0;
 }
