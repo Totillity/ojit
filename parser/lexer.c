@@ -227,8 +227,8 @@ char* get_token_name(enum TokenType type) {
     return type_names[type];
 }
 
-struct Lexer* create_lexer(struct StringTable* table_ptr, String source, MemCtx* ctx) {
-    struct Lexer* lexer = ojit_alloc(ctx, sizeof(struct Lexer));
+struct Lexer* create_lexer(struct StringTable* table_ptr, String source, MemCtx* parser_mem) {
+    struct Lexer* lexer = ojit_alloc(parser_mem, sizeof(struct Lexer));
     lexer->table_ptr = table_ptr;
 
     if (basic_token_trie_root == NULL) {

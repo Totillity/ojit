@@ -46,17 +46,8 @@ int main() {
     JIT* jit = ojit_create_jit();
     jit_add_file(jit, "test.txt");
     JITFunc main_func = jit_get_function(jit, "main", 4);
+    jit_dump_function(jit, main_func, stdout);
     int res = jit_call_function(jit, main_func, FuncType, 3);
-//    for (int i = 0; i < compiled.size; i++ ) {
-//        printf("%02x", compiled.mem[i]);
-//    }9
-//    printf("\n");
-//
-//    FuncType func = (FuncType) copy_to_executable(compiled.mem, compiled.size);
-//
-//    printf("Single time in nsec: %f\n", time_function(func, 3));
-//
     printf("Value: %i\n", res);
-
     return 0;
 }

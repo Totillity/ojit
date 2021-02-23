@@ -19,42 +19,42 @@ Register64 get_unused(const bool* registers) {
 // endregion
 
 
-//struct MemBlock {
-//    uint8_t* front_ptr;
-//    struct MemBlock* next_block;
-//    uint8_t mem[256];
-//};
-
-
 struct AssemblerState {
     uint8_t* front_ptr;
     bool used_registers[16];
     LAList* newest_block;
     MemCtx* ctx;
+    struct GetFunctionCallback callback;
 };
 
 
-void init_asm_state(struct AssemblerState* state, LAList* init_mem) {
+void init_asm_state(struct AssemblerState* state, LAList* init_mem, struct GetFunctionCallback callback) {
     state->front_ptr = &init_mem->mem[LALIST_BLOCK_SIZE];
+
+    // Windows makes you assume the registers RBX, RSI, RDI, RBP, R12-R15 are used
+    // Additionally, we assumed RBP, RSP, R12, and R13 are used because it's a pain to use them
+    // 7 registers should be enough for anyone
 
     state->used_registers[RAX] = false;
     state->used_registers[RCX] = false;
     state->used_registers[RDX] = false;
-    state->used_registers[RBX] = false;
-    state->used_registers[NO_REG] = true;
+    state->used_registers[RBX]         = true;
+    state->used_registers[NO_REG]      = true;
     state->used_registers[SPILLED_REG] = true;
-    state->used_registers[RSI] = false;
-    state->used_registers[RDI] = false;
+    state->used_registers[RSI]         = true;
+    state->used_registers[RDI]         = true;
     state->used_registers[R8]  = false;
     state->used_registers[R9]  = false;
     state->used_registers[R10] = false;
     state->used_registers[R11] = false;
-    state->used_registers[TMP_1_REG] = true;
-    state->used_registers[TMP_2_REG] = true;
-    state->used_registers[R14] = false;
-    state->used_registers[R15] = false;
+    state->used_registers[TMP_1_REG]   = true;
+    state->used_registers[TMP_2_REG]   = true;
+    state->used_registers[R14]         = true;
+    state->used_registers[R15]         = true;
 
     state->newest_block = init_mem;
+    state->callback.callback = callback.callback;
+    state->callback.arg = callback.arg;
 }
 
 
@@ -113,6 +113,28 @@ void __attribute__((always_inline)) asm_emit_mov_r64_i64(Register64 dest, uint64
     }
 }
 
+void __attribute__((always_inline)) asm_emit_call_r64(Register64 reg, struct AssemblerState* state) {
+    asm_emit_byte(MODRM(0b11, 0b10, reg & 0b0111), state);
+    asm_emit_byte(0xFF, state);
+    if (reg & 0b1000) {
+        asm_emit_byte(REX(0b0, 0b0, 0b0, reg >> 3 & 0b0001), state);
+    }
+}
+
+void __attribute__((always_inline)) asm_emit_pop_r64(Register64 reg, struct AssemblerState* state) {
+    asm_emit_byte(0x58 + (reg & 0b0111), state);
+    if (reg & 0b1000) {
+        asm_emit_byte(REX(0b0, 0b0, 0b0, reg >> 3 & 0b0001), state);
+    }
+}
+
+void __attribute__((always_inline)) asm_emit_push_r64(Register64 reg, struct AssemblerState* state) {
+    asm_emit_byte(0x50 + (reg & 0b0111), state);
+    if (reg & 0b1000) {
+        asm_emit_byte(REX(0b0, 0b0, 0b0, reg >> 3 & 0b0001), state);
+    }
+}
+
 void __attribute__((always_inline)) asm_emit_add_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
     asm_emit_byte(MODRM(0b11, source & 0b0111, dest & 0b0111), state);
     asm_emit_byte(0x01, state);
@@ -137,7 +159,7 @@ void __attribute__((always_inline)) unmark_register(Register64 reg, struct Assem
     state->used_registers[reg] = false;
 }
 
-union InstructionIR* __attribute__((always_inline)) instr_ensure(union InstructionIR* instr, struct AssemblerState* state) {
+Instruction* __attribute__((always_inline)) instr_ensure(Instruction* instr, struct AssemblerState* state) {
     if (IS_PARAM_REG(GET_REG(instr))) {
         SET_REG(instr, NORMALIZE_REG(GET_REG(instr)));
         mark_register(GET_REG(instr), state);
@@ -145,7 +167,7 @@ union InstructionIR* __attribute__((always_inline)) instr_ensure(union Instructi
     return instr;
 }
 
-void __attribute__((always_inline)) instr_assign_reg(union InstructionIR* instr, Register64 reg) {
+void __attribute__((always_inline)) instr_assign_reg(Instruction* instr, Register64 reg) {
     assert(!IS_ASSIGNED(GET_REG(instr)));
     SET_REG(instr, reg);
 }
@@ -216,7 +238,7 @@ void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, 
             instr_assign_reg(argument, param_reg);  // TODO we need to check this
             mark_register(GET_REG(argument), state);
         } else if (arg_assigned) {
-            instr_assign_reg((union InstructionIR*) param, AS_PARAM_REG(argument_reg));
+            instr_assign_reg((Instruction*) param, AS_PARAM_REG(argument_reg));
         } else {
             Register64 new_reg = get_unused(state->used_registers);
             if (new_reg == NO_REG) {
@@ -225,12 +247,12 @@ void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, 
             }
             instr_assign_reg(argument, new_reg);
             mark_register(GET_REG(argument), state);
-            instr_assign_reg((union InstructionIR*) param, AS_PARAM_REG(new_reg));
+            instr_assign_reg((Instruction*) param, AS_PARAM_REG(new_reg));
         }
     }
 }
 
-void __attribute__((always_inline)) emit_int(union InstructionIR* instruction, struct AssemblerState* state) {
+void __attribute__((always_inline)) emit_int(Instruction* instruction, struct AssemblerState* state) {
     struct IntIR* instr = &instruction->ir_int;
     if (IS_ASSIGNED(GET_REG(instr))) {
         asm_emit_mov_r64_i64(GET_REG(instr), instr->constant, state);
@@ -238,7 +260,7 @@ void __attribute__((always_inline)) emit_int(union InstructionIR* instruction, s
     }
 }
 
-void __attribute__((always_inline)) emit_add(union InstructionIR* instruction, struct AssemblerState* state) {
+void __attribute__((always_inline)) emit_add(Instruction* instruction, struct AssemblerState* state) {
     struct AddIR* instr = &instruction->ir_add;
 
     if (!IS_ASSIGNED(GET_REG(instr))) return;
@@ -295,7 +317,7 @@ void __attribute__((always_inline)) emit_add(union InstructionIR* instruction, s
     }
 }
 
-void __attribute__((always_inline)) emit_sub(union InstructionIR* instruction, struct AssemblerState* state) {
+void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct AssemblerState* state) {
     struct SubIR* instr = &instruction->ir_sub;
 
     if (!IS_ASSIGNED(GET_REG(instr))) return;
@@ -352,6 +374,105 @@ void __attribute__((always_inline)) emit_sub(union InstructionIR* instruction, s
     }
 }
 
+void __attribute__((always_inline)) emit_global(Instruction* instruction, struct AssemblerState* state) {
+    struct GlobalIR* instr = &instruction->ir_global;
+
+    if (!IS_ASSIGNED(GET_REG(instr))) return;
+    Register64 this_reg = GET_REG(instr);
+    unmark_register(this_reg, state);
+
+    if (state->used_registers[RAX]) asm_emit_pop_r64(RAX, state);
+    if (state->used_registers[RDX]) asm_emit_pop_r64(RDX, state);
+    if (state->used_registers[RCX]) asm_emit_pop_r64(RCX, state);
+
+    asm_emit_mov_r64_r64(this_reg, RAX, state);
+    asm_emit_byte(0x20, state);
+    asm_emit_byte(0xc4, state);
+    asm_emit_byte(0x83, state);
+    asm_emit_byte(0x48, state);
+    asm_emit_call_r64(RAX, state);
+    asm_emit_byte(0x20, state);
+    asm_emit_byte(0xec, state);
+    asm_emit_byte(0x83, state);
+    asm_emit_byte(0x48, state);
+    asm_emit_mov_r64_i64(RAX, (uint64_t) state->callback.callback, state);
+    asm_emit_mov_r64_i64(RCX, (uint64_t) state->callback.arg, state);
+    asm_emit_mov_r64_i64(RDX, (uint64_t) instr->name, state);
+
+    if (state->used_registers[RCX]) asm_emit_push_r64(RCX, state);
+    if (state->used_registers[RDX]) asm_emit_push_r64(RDX, state);
+    if (state->used_registers[RAX]) asm_emit_push_r64(RAX, state);
+}
+
+void __attribute__((always_inline)) emit_call(Instruction* instruction, struct AssemblerState* state) {
+    struct CallIR* instr = &instruction->ir_call;
+
+    if (!IS_ASSIGNED(GET_REG(instr))) return;
+    Register64 this_reg = GET_REG(instr);
+    unmark_register(this_reg, state);
+
+    // TODO here and above state saving
+    bool push_rax = false;
+    bool push_rdx = false;
+    bool push_rcx = false;
+    if (state->used_registers[RAX]) { asm_emit_pop_r64(RAX, state); push_rax = true;}
+    if (state->used_registers[RDX]) { asm_emit_pop_r64(RDX, state); push_rdx = true;}
+    if (state->used_registers[RCX]) { asm_emit_pop_r64(RCX, state); push_rcx = true;}
+
+    size_t offset = 0;
+    while (offset < instr->arguments->len) {
+        void* arg_ptr = instr->arguments->mem + offset;
+        IRValue arg = *(IRValue*) arg_ptr;
+        instr_ensure(arg, state);
+        offset += sizeof(IRValue);
+    }
+
+    enum Register64 callee_reg = instr->callee->base.reg;
+    if (!IS_ASSIGNED(callee_reg)) {
+        callee_reg = get_unused(state->used_registers);
+        if (callee_reg == NO_REG) {
+            printf("Too many registers used concurrently");
+            exit(-1); // TODO spill
+        }
+        instr_assign_reg(instr->callee, callee_reg);
+        mark_register(callee_reg, state);
+    }
+
+    asm_emit_mov_r64_r64(this_reg, RAX, state);
+    asm_emit_byte(0x20, state);
+    asm_emit_byte(0xc4, state);
+    asm_emit_byte(0x83, state);
+    asm_emit_byte(0x48, state);
+    asm_emit_call_r64(callee_reg, state);
+    asm_emit_byte(0x20, state);
+    asm_emit_byte(0xec, state);
+    asm_emit_byte(0x83, state);
+    asm_emit_byte(0x48, state);
+
+    offset = 0;
+    int i = 0;
+    while (offset < instr->arguments->len) {
+        void* arg_ptr = instr->arguments->mem + offset;
+        IRValue arg = *(IRValue*) arg_ptr;
+        enum Register64 reg;
+        switch (i) {
+            case 0: reg = RCX; break;
+            case 1: reg = RDX; break;
+            case 2: reg = R8; break;
+            case 4: reg = R9; break;
+            default: exit(-1);
+        }
+        asm_emit_mov_r64_r64(reg, arg->base.reg, state);
+
+        offset += sizeof(IRValue);
+        i += 1;
+    }
+
+    if (push_rcx) asm_emit_push_r64(RCX, state);
+    if (push_rdx) asm_emit_push_r64(RDX, state);
+    if (push_rax) asm_emit_push_r64(RAX, state);
+}
+
 
 void __attribute__((always_inline)) emit_terminator(union TerminatorIR* terminator_ir, struct AssemblerState* state) {
     switch (terminator_ir->ir_base.id) {
@@ -367,11 +488,13 @@ void __attribute__((always_inline)) emit_terminator(union TerminatorIR* terminat
     }
 }
 
-void __attribute__((always_inline)) emit_instruction(union InstructionIR* instruction_ir, struct AssemblerState* state) {
+void __attribute__((always_inline)) emit_instruction(Instruction* instruction_ir, struct AssemblerState* state) {
     switch (instruction_ir->base.id) {
         case ID_INT_IR: emit_int(instruction_ir, state); break;
         case ID_ADD_IR: emit_add(instruction_ir, state); break;
         case ID_SUB_IR: emit_sub(instruction_ir, state); break;
+        case ID_CALL_IR: emit_call(instruction_ir, state); break;
+        case ID_GLOBAL_IR: emit_global(instruction_ir, state); break;
         case ID_PARAMETER_IR: break;
         default:
             ojit_new_error();
@@ -388,7 +511,7 @@ struct BlockRecord {
 };
 
 
-struct CompiledFunction ojit_compile_function(CState* cstate, struct FunctionIR* func) {
+struct CompiledFunction ojit_compile_function(CState* cstate, struct FunctionIR* func, struct GetFunctionCallback callback) {
     struct AssemblerState state;
     state.ctx = cstate->compiler_mem;
 
@@ -399,8 +522,8 @@ struct CompiledFunction ojit_compile_function(CState* cstate, struct FunctionIR*
     struct BlockIR* block = lalist_iter_next(&block_iter);
     // start from the first block so entry is always first
     LAListIter instr_iter;
-    union InstructionIR* instr;
-    lalist_init_iter(&instr_iter, block->first_instrs, sizeof(union InstructionIR));
+    Instruction* instr;
+    lalist_init_iter(&instr_iter, block->first_instrs, sizeof(Instruction));
     instr = lalist_iter_next(&instr_iter);
     int param_num = 0;
     while (instr && instr->base.id == ID_PARAMETER_IR) {
@@ -422,14 +545,14 @@ struct CompiledFunction ojit_compile_function(CState* cstate, struct FunctionIR*
         LAList* init_mem = lalist_grow(cstate->compiler_mem, NULL, NULL);
         block_records[i].offset = generated_size;
         block_records[i].last_block = init_mem;
-        init_asm_state(&state, init_mem);
+        init_asm_state(&state, init_mem, callback);
 
         emit_terminator(&block->terminator, &state);
         generated_size += check_new_block(&state);
 
 
-        lalist_init_iter(&instr_iter, block->last_instrs, sizeof(union InstructionIR));
-        lalist_iter_position(&instr_iter, block->last_instrs->len - sizeof(union InstructionIR));
+        lalist_init_iter(&instr_iter, block->last_instrs, sizeof(Instruction));
+        lalist_iter_position(&instr_iter, block->last_instrs->len - sizeof(Instruction));
         instr = lalist_iter_prev(&instr_iter);
         int k = 0;
         while (instr) {

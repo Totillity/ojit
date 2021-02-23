@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include "ojit_err.h"
 
 #define OJIT_ARENA_SIZE (1024)
 
@@ -51,6 +52,12 @@ void destroy_mem_ctx(MemCtx* ctx) {
 }
 
 void* ojit_alloc(MemCtx* ctx, size_t size) {
+    if (size > OJIT_ARENA_SIZE) {
+        ojit_new_error();
+        ojit_build_error_chars("Attempted to allocate a size larger than the size of an Arena");
+        ojit_error();
+        exit(-1);
+    }
     if (ctx->curr_arena->curr_ptr + size >= ctx->curr_arena->end_ptr) {
         mem_ctx_new_arena(ctx);
     }

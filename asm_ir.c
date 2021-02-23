@@ -15,6 +15,8 @@ struct FunctionIR* create_function(String name, MemCtx* ctx) {
     function->name = name;
     function->num_blocks = 0;
 
+    function->compiled = NULL;
+
     function_add_block(function, ctx);
     return function;
 }

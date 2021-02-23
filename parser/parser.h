@@ -7,7 +7,7 @@
 
 typedef struct s_Parser Parser;
 
-Parser* create_parser(struct Lexer* lexer, struct HashTable* function_table, MemCtx* mem);
+Parser* create_parser(struct Lexer* lexer, struct HashTable* function_table, MemCtx* ir_mem, MemCtx* parser_mem);
 void parser_parse_source(Parser* parser);
 
 #endif //OJIT_PARSER_H

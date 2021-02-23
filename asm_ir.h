@@ -69,17 +69,21 @@ typedef enum Register64 Register64;
 // endregion
 
 // region Instruction
+typedef union u_InstructionIR Instruction;
+
 enum InstructionID {
     ID_INSTR_NONE = 0,
     ID_PARAMETER_IR,
     ID_INT_IR,
     ID_ADD_IR,
     ID_SUB_IR,
+    ID_CALL_IR,
+    ID_GLOBAL_IR,
 };
 
 struct InstructionBase {
-    enum InstructionID id;
     Register64 reg;
+    enum InstructionID id;
 };
 
 struct ParameterIR {
@@ -93,25 +97,38 @@ struct IntIR {
 
 struct AddIR {
     struct InstructionBase base;
-    union InstructionIR* a;
-    union InstructionIR* b;
+    Instruction* a;
+    Instruction* b;
 };
 
 struct SubIR {
     struct InstructionBase base;
-    union InstructionIR* a;
-    union InstructionIR* b;
+    Instruction* a;
+    Instruction* b;
 };
 
-union InstructionIR {
+struct CallIR {
+    struct InstructionBase base;
+    Instruction* callee;
+    LAList* arguments;
+};
+
+struct GlobalIR {
+    struct InstructionBase base;
+    String name;
+};
+
+union u_InstructionIR {
     struct InstructionBase base;
     struct ParameterIR ir_parameter;
     struct IntIR ir_int;
     struct AddIR ir_add;
     struct SubIR ir_sub;
+    struct CallIR ir_call;
+    struct GlobalIR ir_global;
 };
 
-typedef union InstructionIR* IRValue;
+typedef Instruction* IRValue;
 // endregion
 
 // region Terminator Base
@@ -127,7 +144,7 @@ struct TerminatorBase {
 
 struct ReturnIR {
     struct TerminatorBase base;
-    union InstructionIR* value;
+    Instruction* value;
 };
 
 struct BranchIR {
@@ -162,6 +179,8 @@ struct FunctionIR {
     LAList* first_blocks;
     LAList* last_blocks;
     size_t num_blocks;
+
+    void* compiled;
 };
 
 struct FunctionIR* create_function(String name, MemCtx* ctx);

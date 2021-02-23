@@ -6,7 +6,7 @@
 
 typedef struct s_Parser {
     struct Lexer* lexer;
-    struct IRBuilder* builder;
+    IRBuilder* builder;
     struct HashTable* func_table;
     MemCtx* ir_mem;
 } Parser;
@@ -78,11 +78,15 @@ ExpressionValue parse_terminal(Parser* parser, bool lvalue) {
         case TOKEN_IDENT: {
             parser_expect(parser, TOKEN_IDENT);
             IRValue value;
-            hash_table_get(&parser->builder->current_block->variables, curr.text, (uint64_t*) &value); // TODO check
-            if (lvalue) {
-                return WRAP_LVALUE(curr.text, value);
+            bool success = hash_table_get(&parser->builder->current_block->variables, curr.text, (uint64_t*) &value);
+            if (success) {
+                if (lvalue) {
+                    return WRAP_LVALUE(curr.text, value);
+                }
+                return WRAP_RVALUE(value);
+            } else {
+                return WRAP_RVALUE(builder_Global(parser->builder, curr.text));
             }
-            return WRAP_RVALUE(value);
         }
         case TOKEN_NUMBER: {
             parser_expect(parser, TOKEN_NUMBER);
@@ -111,24 +115,52 @@ ExpressionValue parse_terminal(Parser* parser, bool lvalue) {
 }
 
 
-ExpressionValue parse_addition(Parser* parser, bool lvalue) {
+ExpressionValue parse_call(Parser* parser, bool lvalue) {
     ExpressionValue expr = parse_terminal(parser, lvalue);
 
-    Token curr = parser_peek(parser);
+    while (true) {
+        Token curr = parser_peek(parser);
+        switch (curr.type) {
+            case TOKEN_LEFT_PAREN:
+                expr = WRAP_RVALUE(builder_Call(parser->builder, RVALUE(expr)));
+                parser_expect(parser, TOKEN_LEFT_PAREN);
+                while (!parser_peek_is(parser, TOKEN_RIGHT_PAREN)) {
+                    IRValue arg = parse_expression(parser);
+                    builder_Call_argument(RVALUE(expr), arg);
+                    if (parser_peek_is(parser, TOKEN_COMMA)) {
+                        parser_expect(parser, TOKEN_COMMA);
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                parser_expect(parser, TOKEN_RIGHT_PAREN);
+                break;
+            default:
+                goto at_end;
+        }
+    }
+    at_end:
+    return expr;
+}
+
+
+ExpressionValue parse_addition(Parser* parser, bool lvalue) {
+    ExpressionValue expr = parse_call(parser, lvalue);
+
     IRValue right;
     while (true) {
+        Token curr = parser_peek(parser);
         switch (curr.type) {
             case TOKEN_PLUS:
                 parser_expect(parser, TOKEN_PLUS);
-                right = RVALUE(parse_terminal(parser, false));
+                right = RVALUE(parse_call(parser, false));
                 expr = WRAP_RVALUE(builder_Add(parser->builder, RVALUE(expr), right));
-                curr = parser_peek(parser);
                 break;
             case TOKEN_MINUS:
                 parser_expect(parser, TOKEN_MINUS);
-                right = RVALUE(parse_terminal(parser, false));
+                right = RVALUE(parse_call(parser, false));
                 expr = WRAP_RVALUE(builder_Sub(parser->builder, RVALUE(expr), right));
-                curr = parser_peek(parser);
                 break;
             default:
                 goto at_end;
@@ -202,7 +234,7 @@ void parse_function(Parser* parser) {
 
     Token name = parser_expect(parser, TOKEN_IDENT);
     struct FunctionIR* func = create_function(name.text, parser->ir_mem);
-    struct IRBuilder* builder = parser->builder = create_builder(func, parser->ir_mem);
+    IRBuilder* builder = parser->builder = create_builder(func, parser->ir_mem);
 
     parser_expect(parser, TOKEN_LEFT_PAREN);
     while (!parser_peek_is(parser, TOKEN_RIGHT_PAREN)) {
@@ -253,12 +285,12 @@ void parser_parse_source(Parser* parser) {
     }
 }
 
-Parser* create_parser(struct Lexer* lexer, struct HashTable* function_table, MemCtx* mem) {
-    Parser* parser = ojit_alloc(mem, sizeof(Parser));
+Parser* create_parser(struct Lexer* lexer, struct HashTable* function_table, MemCtx* ir_mem, MemCtx* parser_mem) {
+    Parser* parser = ojit_alloc(parser_mem, sizeof(Parser));
     parser->lexer = lexer;
     parser->builder = NULL;
     parser->func_table = function_table;
-    parser->ir_mem = mem;
+    parser->ir_mem = ir_mem;
     return parser;
 }
 
