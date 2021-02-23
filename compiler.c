@@ -4,6 +4,7 @@
 #include "ojit_err.h"
 #include "ojit_state.h"
 #include "compiler.h"
+#include "ir_opt.h"
 
 
 // region Compilation
@@ -53,8 +54,8 @@ void init_asm_state(struct AssemblerState* state, LAList* init_mem, struct GetFu
     state->used_registers[R15]         = true;
 
     state->newest_block = init_mem;
-    state->callback.callback = callback.callback;
-    state->callback.arg = callback.arg;
+    state->callback.compiled_callback = callback.compiled_callback;
+    state->callback.jit_ptr = callback.jit_ptr;
 }
 
 
@@ -392,8 +393,8 @@ void __attribute__((always_inline)) emit_global(Instruction* instruction, struct
     asm_emit_byte(0xec, state);
     asm_emit_byte(0x83, state);
     asm_emit_byte(0x48, state);
-    asm_emit_mov_r64_i64(RAX, (uint64_t) state->callback.callback, state);
-    asm_emit_mov_r64_i64(RCX, (uint64_t) state->callback.arg, state);
+    asm_emit_mov_r64_i64(RAX, (uint64_t) state->callback.compiled_callback, state);
+    asm_emit_mov_r64_i64(RCX, (uint64_t) state->callback.jit_ptr, state);
     asm_emit_mov_r64_i64(RDX, (uint64_t) instr->name, state);
 
     if (state->used_registers[RCX]) asm_emit_push_r64(RCX, state);
@@ -509,6 +510,8 @@ struct BlockRecord {
 
 
 struct CompiledFunction ojit_compile_function(CState* cstate, struct FunctionIR* func, struct GetFunctionCallback callback) {
+    ojit_optimize_func(func, callback);
+
     struct AssemblerState state;
     state.ctx = cstate->compiler_mem;
 

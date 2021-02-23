@@ -33,21 +33,26 @@ JITFunc jit_get_function(JIT* jit, char* func_name, size_t name_len) {
     return (void*) func_ir_ptr;
 }
 
-void* jit_func_callback(JIT* jit, String str) {
-    ojit_new_error();
-    ojit_build_error_chars("Fetch: ");
-    ojit_build_error_String(str);
-    ojit_error();
+void* jit_compiled_callback(JIT* jit, String str) {
     struct FunctionIR* func_ir_ptr;
     hash_table_get(&jit->function_records, str, (uint64_t*) &func_ir_ptr);
     return jit_get_compiled_function(jit, func_ir_ptr, NULL);
 }
 
+void* jit_ir_callback(JIT* jit, String str) {
+    struct FunctionIR* func_ir_ptr;
+    hash_table_get(&jit->function_records, str, (uint64_t*) &func_ir_ptr);
+    return func_ir_ptr;
+}
+
 void* jit_get_compiled_function(JIT* jit, JITFunc func, size_t* len) {
     if (func->compiled == NULL) {
         CState* cstate = create_cstate(jit->jstate);
-        struct CompiledFunction compiled_func = ojit_compile_function(cstate, func,
-                (struct GetFunctionCallback) {.callback=jit_func_callback, .arg=jit});
+        struct CompiledFunction compiled_func = ojit_compile_function(cstate, func, (struct GetFunctionCallback) {
+            .compiled_callback=jit_compiled_callback,
+            .ir_callback=jit_ir_callback,
+            .jit_ptr=jit
+        });
         func->compiled = copy_to_executable(compiled_func.mem, compiled_func.size);
         if (len) {
             *len = compiled_func.size;

@@ -6,12 +6,12 @@
 typedef int (*FuncType)(int);
 
 
-double time_function(FuncType func, int arg) {
+double time_function(JIT* jit, JITFunc func, int arg) {
     int iterations = 100000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     for (int i = 0; i < iterations; i++) {
-        func(arg);
+        jit_call_function(jit, func, FuncType, arg);
     }
     clock_gettime(CLOCK_MONOTONIC, &end);
     double time_in_nsec = (end.tv_sec - start.tv_sec) * 1e9 + (end.tv_nsec - start.tv_nsec);
@@ -48,6 +48,7 @@ int main() {
     JITFunc main_func = jit_get_function(jit, "main", 4);
     jit_dump_function(jit, main_func, stdout);
     int res = jit_call_function(jit, main_func, FuncType, 3);
-    printf("Value: %i\n", res);
+    double t = time_function(jit, main_func, 3);
+    printf("Value: %i, Time: %f\n", res, t);
     return 0;
 }

@@ -68,6 +68,12 @@ typedef enum Register64 Register64;
 #define IS_ASSIGNED(reg) (((reg) & 0b1111) != NO_REG)
 // endregion
 
+struct GetFunctionCallback {
+    void* compiled_callback;
+    void* ir_callback;
+    void* jit_ptr;
+};
+
 // region Instruction
 typedef union u_InstructionIR Instruction;
 
@@ -165,6 +171,7 @@ union TerminatorIR {
 struct BlockIR {
     LAList* first_instrs;
     LAList* last_instrs;
+    size_t num_instrs;
     union TerminatorIR terminator;
     struct HashTable variables;
     size_t block_num;

@@ -14,6 +14,7 @@ Instruction* builder_add_instr(IRBuilder* builder) {
     if (builder->current_block->last_instrs->len + sizeof(Instruction) > LALIST_BLOCK_SIZE) {
         builder->current_block->last_instrs = lalist_grow(builder->ir_mem, builder->current_block->last_instrs, NULL);
     }
+    builder->current_block->num_instrs++;
     return lalist_add(builder->current_block->last_instrs, sizeof(Instruction));
 }
 
