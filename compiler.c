@@ -94,6 +94,7 @@ void __attribute__((always_inline)) asm_emit_int64(uint64_t constant, struct Ass
 }
 
 void __attribute__((always_inline)) asm_emit_mov_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
+    if (dest == source) return;
     asm_emit_byte(MODRM(0b11, source & 0b111, dest & 0b0111), state);
     asm_emit_byte(0x89, state);
     asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
@@ -171,10 +172,6 @@ void __attribute__((always_inline)) instr_assign_reg(Instruction* instr, Registe
     assert(!IS_ASSIGNED(GET_REG(instr)));
     SET_REG(instr, reg);
 }
-
-//size_t __attribute__((always_inline)) get_block_size(struct MemBlock* block) {
-//    return 256 - (block->front_ptr - block->mem);
-//}
 
 size_t __attribute__((always_inline)) check_new_block(struct AssemblerState* state) {
     if (state->front_ptr - state->newest_block->mem < (MAXIMUM_INSTRUCTION_SIZE + 1)) {
@@ -484,7 +481,7 @@ void __attribute__((always_inline)) emit_terminator(union TerminatorIR* terminat
             ojit_build_error_chars("Either Unimplemented or missing terminator: ID ");
             ojit_build_error_int(terminator_ir->ir_base.id);
             ojit_error();
-            exit(-1); // TODO programmer error
+            exit(-1);
     }
 }
 
