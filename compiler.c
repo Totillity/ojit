@@ -142,6 +142,35 @@ void __attribute__((always_inline)) asm_emit_add_r64_r64(Register64 dest, Regist
     asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
 }
 
+void __attribute__((always_inline)) asm_emit_add_r64_i32(Register64 source, uint32_t constant, struct AssemblerState* state) {
+    if (constant <= UINT8_MAX) {
+        if (source == RAX) {
+            asm_emit_int8(constant, state);
+            asm_emit_byte(0x04, state);
+        } else {
+            asm_emit_int8(constant, state);
+            asm_emit_byte(MODRM(0b11, 0, source & 0b0111), state);
+            asm_emit_byte(0x80, state);
+            if (source & 0b1000) {
+                asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), state);
+            }
+        }
+    } else {
+        if (source == RAX) {
+            asm_emit_int32(constant, state);
+            asm_emit_byte(0x05, state);
+        } else {
+            asm_emit_int32(constant, state);
+            asm_emit_byte(MODRM(0b11, 0, source & 0b0111), state);
+            asm_emit_byte(0x81, state);
+            if (source & 0b1000) {
+                asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), state);
+            }
+        }
+
+    }
+}
+
 void __attribute__((always_inline)) asm_emit_sub_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
     asm_emit_byte(MODRM(0b11, source & 0b111, dest & 0b0111), state);
     asm_emit_byte(0x29, state);
@@ -270,10 +299,50 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
     bool a_assigned = IS_ASSIGNED(a_register);
     bool b_assigned = IS_ASSIGNED(b_register);
 
+    if (instr->a->base.id == ID_INT_IR) {
+        if (!b_assigned) {
+            b_register = get_unused(state->used_registers);
+            if (b_register == NO_REG) {
+                printf("Too many registers used concurrently");
+                exit(-1); // TODO spill
+            }
+            instr_assign_reg(instr->b, b_register);
+            mark_register(b_register, state);
+        }
+        if (b_register == RAX) {  // try to add into RAX since that has a shorter instruction
+            asm_emit_mov_r64_r64(this_reg, b_register, state);
+            asm_emit_add_r64_i32(b_register, instr->a->ir_int.constant, state);
+        } else {
+            asm_emit_add_r64_i32(this_reg, instr->a->ir_int.constant, state);
+            asm_emit_mov_r64_r64(this_reg, b_register, state);
+        }
+        return;
+    }
+    if (instr->b->base.id == ID_INT_IR) {
+        if (!a_assigned) {
+            a_register = get_unused(state->used_registers);
+            if (a_register == NO_REG) {
+                printf("Too many registers used concurrently");
+                exit(-1); // TODO spill
+            }
+            instr_assign_reg(instr->a, a_register);
+            mark_register(a_register, state);
+        }
+        if (a_register == RAX) {
+            asm_emit_mov_r64_r64(this_reg, a_register, state);
+            asm_emit_add_r64_i32(a_register, instr->b->ir_int.constant, state);
+        } else {
+            asm_emit_add_r64_i32(this_reg, instr->b->ir_int.constant, state);
+            asm_emit_mov_r64_r64(this_reg, a_register, state);
+        }
+        return;
+    }
+
     if (a_assigned && b_assigned) {
         // we need to copy a into primary_reg, then add b into it
         asm_emit_add_r64_r64(this_reg, b_register, state);
         asm_emit_mov_r64_r64(this_reg, a_register, state);
+        return;
     } else {
         Register64 primary_reg;  // the register we add into to get the result
         Register64 secondary_reg; // the register we add in
@@ -311,6 +380,7 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
             secondary_reg = new_reg;
         }
         asm_emit_add_r64_r64(primary_reg, secondary_reg, state);
+        return;
     }
 }
 

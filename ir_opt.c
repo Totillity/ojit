@@ -7,7 +7,7 @@ struct OptState {
 #define TYPE_OF(instr) ((instr)->base.id)
 #define INT_CONST(instr) ((instr)->ir_int.constant)
 
-void optimize_add_ir(Instruction* instr, struct OptState* state) {
+void optimize_add_ir(Instruction* instr) {
     struct AddIR* add_ir = &instr->ir_add;
     if (TYPE_OF(add_ir->b) == ID_INT_IR) {
         if (TYPE_OF(add_ir->a) == ID_INT_IR) {
@@ -42,13 +42,14 @@ void optimize_add_ir(Instruction* instr, struct OptState* state) {
     }
 }
 
-void ojit_optimize_block(struct BlockIR* block,struct OptState* state) {
+void ojit_optimize_block(struct BlockIR* block, struct OptState* state) {
+    (void) state;
     LAListIter instr_iter;
     lalist_init_iter(&instr_iter, block->first_instrs, sizeof(Instruction));
     Instruction* instr = lalist_iter_next(&instr_iter);
     while (instr) {
         switch (TYPE_OF(instr)) {
-            case ID_ADD_IR: optimize_add_ir(instr, state); break;
+            case ID_ADD_IR: optimize_add_ir(instr); break;
             default: break;
         }
         instr = lalist_iter_next(&instr_iter);
