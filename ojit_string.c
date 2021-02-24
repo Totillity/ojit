@@ -31,19 +31,6 @@ bool string_equal(String a, String b) {
 }
 
 
-bool mem_string_check_equal(String a, size_t hash, size_t length, char* ptr) {
-    return a->hash == hash && a->length == length && (strncmp(a->start_ptr, ptr, a->length) == 0);
-}
-
-
-char null_term_buf[256];
-char* null_terminate_string(String s) {
-    memset(null_term_buf, 0, 256);
-    memcpy(null_term_buf, s->start_ptr, s->length);
-    return null_term_buf;
-}
-
-
 String string_table_add(struct StringTable* table, char* ptr, uint32_t length) {
     if (length == 0) {
         return &table->null_string;
@@ -55,7 +42,7 @@ String string_table_add(struct StringTable* table, char* ptr, uint32_t length) {
     while (true) {
         struct s_StringRecord* existing = lalist_get(curr_block, sizeof(struct s_StringRecord), insert_index);
         if (existing->length != 0) {
-            if (mem_string_check_equal(existing, hash, length, ptr)) {
+            if (existing->hash == hash && existing->length == length && (strncmp(existing->start_ptr, ptr, existing->length) == 0)) {
                 return existing;
             } else {
                 if (curr_block->next) {

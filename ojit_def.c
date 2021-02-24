@@ -1,7 +1,7 @@
+#include "ojit_def.h"
+
 #include <stdio.h>
 #include <assert.h>
-
-#include "ojit_err.h"
 #include <string.h>
 
 char err_msg_buf[256] = { [0 ... 255] = 0};

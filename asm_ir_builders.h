@@ -35,4 +35,9 @@ void builder_Return(IRBuilder* builder, IRValue value);
 void builder_Branch(IRBuilder* builder, struct BlockIR* target, size_t arg_count, IRValue* arguments);
 // endregion
 
+void init_block(struct BlockIR* block, size_t block_num, MemCtx* ctx);
+
+struct FunctionIR* create_function(String name, MemCtx* ctx);
+struct BlockIR* function_add_block(struct FunctionIR* func, MemCtx* ctx);
+
 #endif //OJIT_ASM_IR_BUILDERS_H

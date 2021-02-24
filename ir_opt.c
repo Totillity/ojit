@@ -1,7 +1,5 @@
 #include "ir_opt.h"
 
-#include "asm_ir_builders.h"
-
 struct OptState {
     struct GetFunctionCallback callbacks;
 };
@@ -17,11 +15,6 @@ void optimize_add_ir(Instruction* instr, struct OptState* state) {
             instr->base.id = ID_INT_IR;
             instr->ir_int.constant = sum;
         } else if (TYPE_OF(add_ir->a) == ID_ADD_IR) {
-//            if (TYPE_OF(add_ir->a->ir_add.b) == ID_INT_IR) {
-//                uint32_t sum = add_ir->a->ir_add.b->ir_int.constant + add_ir->b->ir_int.constant;
-//                add_ir->b->ir_int.constant = sum;
-//                add_ir->a = add_ir->a->ir_add.a;
-//            }
             struct AddIR* inner_add = &add_ir->a->ir_add;
             if (TYPE_OF(inner_add->a) == ID_INT_IR) {
                 uint32_t sum = INT_CONST(inner_add->a) + INT_CONST(add_ir->b);
@@ -63,6 +56,7 @@ void ojit_optimize_block(struct BlockIR* block,struct OptState* state) {
 }
 
 void ojit_optimize_func(struct FunctionIR* func, struct GetFunctionCallback callbacks) {
+#ifdef OJIT_OPTIMIZATIONS
     struct OptState state = {.callbacks = callbacks};
 
     LAListIter block_iter;
@@ -72,4 +66,7 @@ void ojit_optimize_func(struct FunctionIR* func, struct GetFunctionCallback call
         ojit_optimize_block(block, &state);
         block = lalist_iter_next(&block_iter);
     }
+#else
+    return;
+#endif
 }

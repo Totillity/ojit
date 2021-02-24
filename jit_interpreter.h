@@ -2,12 +2,12 @@
 #define OJIT_JIT_INTERPRETER_H
 
 #include "ojit_mem.h"
-#include "ojit_state.h"
-#include "hash_table/hash_table.h"
+#include "hash_table.h"
 #include <stdio.h>
 
 typedef struct s_JITState {
-    JState* jstate;
+    MemCtx* ir_mem;
+    MemCtx* string_mem;
     struct StringTable strings;
     struct HashTable function_records;
 } JIT;

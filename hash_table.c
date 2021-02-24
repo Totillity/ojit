@@ -1,6 +1,6 @@
 #include <string.h>
 
-#include "../string_tools/ojit_string.h"
+#include "ojit_string.h"
 #include "hash_table.h"
 
 

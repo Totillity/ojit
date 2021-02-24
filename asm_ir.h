@@ -4,14 +4,11 @@
 #include "ojit_def.h"
 #include "ojit_mem.h"
 
-#include "string_tools/ojit_string.h"
-#include "hash_table/hash_table.h"
+#include "ojit_string.h"
+#include "hash_table.h"
 
 // region Registers
 // Idea: add Spilled-reg to mark values which were spilled onto the stack
-// Idea: to simplify no-reg and spilled-reg, make it so values can't occupy RSP, RBP, R12, R13 and use those values to represent no and spilled
-//       this would also_lvalue simplify mov code, as r12 and r13 are special-cased, so if we can't normally use them, we don't have to write the case
-//       this would also_lvalue provide general purpose registers for uses like swapping variables and the like
 enum Register64 {
     RAX = 0b0000,
     RCX = 0b0001,
@@ -76,6 +73,7 @@ struct GetFunctionCallback {
 
 // region Instruction
 typedef union u_InstructionIR Instruction;
+typedef Instruction* IRValue;
 
 enum InstructionID {
     ID_INSTR_NONE = 0,
@@ -133,8 +131,6 @@ union u_InstructionIR {
     struct CallIR ir_call;
     struct GlobalIR ir_global;
 };
-
-typedef Instruction* IRValue;
 // endregion
 
 // region Terminator Base
@@ -176,8 +172,6 @@ struct BlockIR {
     struct HashTable variables;
     size_t block_num;
 };
-
-void init_block(struct BlockIR* block, size_t block_num, MemCtx* ctx);
 // endregion
 
 // region Function
@@ -189,9 +183,6 @@ struct FunctionIR {
 
     void* compiled;
 };
-
-struct FunctionIR* create_function(String name, MemCtx* ctx);
-struct BlockIR* function_add_block(struct FunctionIR* func, MemCtx* ctx);
 // endregion Function
 
 

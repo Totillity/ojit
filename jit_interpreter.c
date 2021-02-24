@@ -2,16 +2,16 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#include "parser/lexer.h"
-#include "parser/parser.h"
+#include "parser.h"
 #include "compiler.h"
 
 
 JIT* ojit_create_jit() {
     JIT* jit = malloc(sizeof(JIT));
-    jit->jstate = create_jstate();
-    init_string_table(&jit->strings, jit->jstate->string_mem);
-    init_hash_table(&jit->function_records, jit->jstate->ir_mem);
+    jit->string_mem = create_mem_ctx();
+    jit->ir_mem = create_mem_ctx();
+    init_string_table(&jit->strings, jit->string_mem);
+    init_hash_table(&jit->function_records, jit->ir_mem);
     return jit;
 }
 
@@ -19,8 +19,7 @@ JIT* ojit_create_jit() {
 void jit_add_file(JIT* jit, char* file_name) {
     String source = read_file(&jit->strings, file_name);
     MemCtx* parser_mem = create_mem_ctx();
-    struct Lexer* lexer = create_lexer(&jit->strings, source, parser_mem);
-    Parser* parser = create_parser(lexer, &jit->function_records, jit->jstate->ir_mem, parser_mem);
+    Parser* parser = create_parser(source, &jit->strings, &jit->function_records, jit->ir_mem, parser_mem);
     parser_parse_source(parser);
     destroy_mem_ctx(parser_mem);
 }
@@ -47,8 +46,8 @@ void* jit_ir_callback(JIT* jit, String str) {
 
 void* jit_get_compiled_function(JIT* jit, JITFunc func, size_t* len) {
     if (func->compiled == NULL) {
-        CState* cstate = create_cstate(jit->jstate);
-        struct CompiledFunction compiled_func = ojit_compile_function(cstate, func, (struct GetFunctionCallback) {
+        MemCtx* compiler_mem = create_mem_ctx();
+        struct CompiledFunction compiled_func = ojit_compile_function(func, compiler_mem, (struct GetFunctionCallback) {
             .compiled_callback=jit_compiled_callback,
             .ir_callback=jit_ir_callback,
             .jit_ptr=jit
@@ -57,7 +56,7 @@ void* jit_get_compiled_function(JIT* jit, JITFunc func, size_t* len) {
         if (len) {
             *len = compiled_func.size;
         }
-        destroy_cstate(cstate);
+        destroy_mem_ctx(compiler_mem);
     }
     return func->compiled;
 }

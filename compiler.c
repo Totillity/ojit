@@ -1,8 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "ojit_err.h"
-#include "ojit_state.h"
+#include "ojit_def.h"
 #include "compiler.h"
 #include "ir_opt.h"
 
@@ -509,14 +508,14 @@ struct BlockRecord {
 };
 
 
-struct CompiledFunction ojit_compile_function(CState* cstate, struct FunctionIR* func, struct GetFunctionCallback callback) {
+struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* compiler_mem, struct GetFunctionCallback callback) {
     ojit_optimize_func(func, callback);
 
     struct AssemblerState state;
-    state.ctx = cstate->compiler_mem;
+    state.ctx = compiler_mem;
 
     size_t generated_size = 0;
-    struct BlockRecord* block_records = ojit_alloc(cstate->compiler_mem, sizeof(struct BlockRecord) * func->num_blocks);
+    struct BlockRecord* block_records = ojit_alloc(compiler_mem, sizeof(struct BlockRecord) * func->num_blocks);
     LAListIter block_iter;
     lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
     struct BlockIR* block = lalist_iter_next(&block_iter);
@@ -542,7 +541,7 @@ struct CompiledFunction ojit_compile_function(CState* cstate, struct FunctionIR*
 
     int i = 0;
     while (i < func->num_blocks) {
-        LAList* init_mem = lalist_grow(cstate->compiler_mem, NULL, NULL);
+        LAList* init_mem = lalist_grow(compiler_mem, NULL, NULL);
         block_records[i].offset = generated_size;
         block_records[i].last_block = init_mem;
         init_asm_state(&state, init_mem, callback);
@@ -567,7 +566,7 @@ struct CompiledFunction ojit_compile_function(CState* cstate, struct FunctionIR*
         block = lalist_iter_next(&block_iter);
         i++;
     }
-    uint8_t* func_mem = ojit_alloc(cstate->compiler_mem, generated_size);
+    uint8_t* func_mem = ojit_alloc(compiler_mem, generated_size);
     uint8_t* write_ptr = func_mem + generated_size;
 
     lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));

@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include "ojit_err.h"
+#include "ojit_def.h"
 
 #define OJIT_ARENA_SIZE (1024)
 
