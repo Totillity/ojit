@@ -94,12 +94,15 @@ void __attribute__((always_inline)) asm_emit_int64(uint64_t constant, struct Ass
 }
 
 void __attribute__((always_inline)) asm_emit_mov_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
+#ifdef OJIT_OPTIMIZATIONS
     if (dest == source) return;
+#endif
     asm_emit_byte(MODRM(0b11, source & 0b111, dest & 0b0111), state);
     asm_emit_byte(0x89, state);
     asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
 }
 
+#ifdef OJIT_OPTIMIZATIONS
 void __attribute__((always_inline)) asm_emit_mov_r64_i64(Register64 dest, uint64_t constant, struct AssemblerState* state) {
     if (constant <= UINT32_MAX) {
         asm_emit_int32(constant, state);
@@ -113,6 +116,13 @@ void __attribute__((always_inline)) asm_emit_mov_r64_i64(Register64 dest, uint64
         asm_emit_byte(REX(0b1, 0b0, 0b0, dest >> 3 & 0b0001), state);
     }
 }
+#else
+void __attribute__((always_inline)) asm_emit_mov_r64_i64(Register64 dest, uint64_t constant, struct AssemblerState* state) {
+        asm_emit_int64(constant, state);
+        asm_emit_byte(0xB8 + (dest & 0b0111), state);
+        asm_emit_byte(REX(0b1, 0b0, 0b0, dest >> 3 & 0b0001), state);
+}
+#endif
 
 void __attribute__((always_inline)) asm_emit_call_r64(Register64 reg, struct AssemblerState* state) {
     asm_emit_byte(MODRM(0b11, 0b10, reg & 0b0111), state);
@@ -143,6 +153,7 @@ void __attribute__((always_inline)) asm_emit_add_r64_r64(Register64 dest, Regist
 }
 
 void __attribute__((always_inline)) asm_emit_add_r64_i32(Register64 source, uint32_t constant, struct AssemblerState* state) {
+#ifdef OJIT_OPTIMIZATIONS
     if (constant <= UINT8_MAX) {
         if (source == RAX) {
             asm_emit_int8(constant, state);
@@ -156,6 +167,7 @@ void __attribute__((always_inline)) asm_emit_add_r64_i32(Register64 source, uint
             }
         }
     } else {
+#endif
         if (source == RAX) {
             asm_emit_int32(constant, state);
             asm_emit_byte(0x05, state);
@@ -167,8 +179,9 @@ void __attribute__((always_inline)) asm_emit_add_r64_i32(Register64 source, uint
                 asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), state);
             }
         }
-
+#ifdef OJIT_OPTIMIZATIONS
     }
+#endif
 }
 
 void __attribute__((always_inline)) asm_emit_sub_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
@@ -299,6 +312,7 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
     bool a_assigned = IS_ASSIGNED(a_register);
     bool b_assigned = IS_ASSIGNED(b_register);
 
+#ifdef OJIT_OPTIMIZATIONS
     if (instr->a->base.id == ID_INT_IR) {
         if (!b_assigned) {
             b_register = get_unused(state->used_registers);
@@ -337,6 +351,7 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
         }
         return;
     }
+#endif
 
     if (a_assigned && b_assigned) {
         // we need to copy a into primary_reg, then add b into it

@@ -16,9 +16,11 @@ def main(a1):
     return a12 + 3
 
 
+i = 0
 start = time.time()
-for i in range(100000):
+while True:
     main(3)
-end = time.time()
-func_time = (end - start) / 100000
-print(f"Value: {main(3)} Time: {func_time * 1e9}")
+    i += 1
+    if i % 1000 == 0:
+        elasped = time.time() - start
+        print(f"\rTime: {elasped / i * 1e9}", end="", flush=True)

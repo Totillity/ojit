@@ -1,5 +1,5 @@
 def main(a1) {
-    let a2 =  a1  + 3;
+    let a2 =  other(a1);
     let a3 =  a2  + 3;
     let a4 =  a3  + 3;
     let a5 =  a4  + 3;
