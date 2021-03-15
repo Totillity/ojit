@@ -8,19 +8,7 @@
 #endif
 
 
-// region Compilation
-#define MAXIMUM_INSTRUCTION_SIZE (15)
-
-// region Utility Functions & Macros
-Register64 get_unused(const bool* registers) {
-    for (int i = 0; i < 16; i++) {
-        if (!registers[i]) return i;
-    }
-    return NO_REG;
-}
-// endregion
-
-
+// region State and Records
 struct OffsetRecord {
     uint32_t offset_from_end;
     struct BlockIR* target;
@@ -84,11 +72,41 @@ void init_asm_state(struct AssemblerState* state, struct BlockIR* block, LAList*
     state->callback.jit_ptr = callback.jit_ptr;
 }
 
+uint32_t offset_from_end(struct AssemblerState* state) {
+    uint32_t block_size = LALIST_BLOCK_SIZE - (state->front_ptr - state->newest_mem_block->mem);
+    return block_size + state->block_generated;
+}
+// endregion
 
+// region Registers
 #define GET_REG(value) ((value)->base.reg)
 #define SET_REG(value, reg_) ((value)->base.reg = (reg_))
 #define REG_IS_MARKED(reg) (state->used_registers[(reg)])
 
+void __attribute__((always_inline)) mark_register(Register64 reg, struct AssemblerState* state) {
+    OJIT_ASSERT(state->used_registers[reg] == false, "Attempted to mark a register which is already marked");
+//    assert(state->used_registers[reg] == false);
+    state->used_registers[reg] = true;
+}
+
+void __attribute__((always_inline)) unmark_register(Register64 reg, struct AssemblerState* state) {
+    OJIT_ASSERT(state->used_registers[reg] == true, "Attempted to unmark a register which is already unmarked");
+//    assert(state->used_registers[reg] == true);
+    state->used_registers[reg] = false;
+}
+
+void __attribute__((always_inline)) instr_assign_reg(Instruction* instr, Register64 reg) {
+    assert(!IS_ASSIGNED(GET_REG(instr)));
+    SET_REG(instr, reg);
+}
+
+Register64 get_unused(const bool* registers) {
+    for (int i = 0; i < 16; i++) {
+        if (!registers[i]) return i;
+    }
+    return NO_REG;
+}
+// endregion
 
 // region asm utility
 #define REX(w, r, x, b) ((uint8_t) (0b01000000 | ((w) << 3) | ((r) << 2) | ((x) << 1) | ((b))))
@@ -133,6 +151,9 @@ void __attribute__((always_inline)) asm_emit_test_r64_r64(Register64 dest, Regis
 }
 
 void __attribute__((always_inline)) asm_emit_xchg_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
+#ifdef OJIT_OPTIMIZATIONS
+    if (dest == source) return;
+#endif
     asm_emit_byte(MODRM(0b11, source & 0b111, dest & 0b0111), state);
     asm_emit_byte(0x87, state);
     asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
@@ -147,27 +168,21 @@ void __attribute__((always_inline)) asm_emit_mov_r64_r64(Register64 dest, Regist
     asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
 }
 
-#ifdef OJIT_OPTIMIZATIONS
 void __attribute__((always_inline)) asm_emit_mov_r64_i64(Register64 dest, uint64_t constant, struct AssemblerState* state) {
+#ifdef OJIT_OPTIMIZATIONS
     if (constant <= UINT32_MAX) {
         asm_emit_int32(constant, state);
         asm_emit_byte(0xB8 + (dest & 0b0111), state);
         if (dest & 0b1000) {
             asm_emit_byte(REX(0b0, 0b0, 0b0, dest >> 3 & 0b0001), state);
         }
-    } else {
-        asm_emit_int64(constant, state);
-        asm_emit_byte(0xB8 + (dest & 0b0111), state);
-        asm_emit_byte(REX(0b1, 0b0, 0b0, dest >> 3 & 0b0001), state);
+        return;
     }
-}
-#else
-void __attribute__((always_inline)) asm_emit_mov_r64_i64(Register64 dest, uint64_t constant, struct AssemblerState* state) {
-        asm_emit_int64(constant, state);
-        asm_emit_byte(0xB8 + (dest & 0b0111), state);
-        asm_emit_byte(REX(0b1, 0b0, 0b0, dest >> 3 & 0b0001), state);
-}
 #endif
+    asm_emit_int64(constant, state);
+    asm_emit_byte(0xB8 + (dest & 0b0111), state);
+    asm_emit_byte(REX(0b1, 0b0, 0b0, dest >> 3 & 0b0001), state);
+}
 
 void __attribute__((always_inline)) asm_emit_call_r64(Register64 reg, struct AssemblerState* state) {
     asm_emit_byte(MODRM(0b11, 0b10, reg & 0b0111), state);
@@ -237,38 +252,8 @@ void __attribute__((always_inline)) asm_emit_sub_r64_r64(Register64 dest, Regist
 
 // endregion
 
-void __attribute__((always_inline)) mark_register(Register64 reg, struct AssemblerState* state) {
-    OJIT_ASSERT(state->used_registers[reg] == false, "Attempted to mark a register which is already marked");
-//    assert(state->used_registers[reg] == false);
-    state->used_registers[reg] = true;
-}
-
-void __attribute__((always_inline)) unmark_register(Register64 reg, struct AssemblerState* state) {
-    OJIT_ASSERT(state->used_registers[reg] == true, "Attempted to unmark a register which is already unmarked");
-//    assert(state->used_registers[reg] == true);
-    state->used_registers[reg] = false;
-}
-
-void __attribute__((always_inline)) instr_assign_reg(Instruction* instr, Register64 reg) {
-    assert(!IS_ASSIGNED(GET_REG(instr)));
-    SET_REG(instr, reg);
-}
-
-uint32_t offset_from_end(struct AssemblerState* state) {
-    uint32_t block_size = LALIST_BLOCK_SIZE - (state->front_ptr - state->newest_mem_block->mem);
-    return block_size + state->block_generated;
-}
-
-//size_t __attribute__((always_inline)) check_new_block(struct AssemblerState* state) {
-//    if (state->front_ptr - state->newest_mem_block->mem < (MAXIMUM_INSTRUCTION_SIZE + 1)) {
-//        state->newest_mem_block->len = LALIST_BLOCK_SIZE - (state->front_ptr - state->newest_mem_block->mem);
-//        state->newest_mem_block = lalist_grow(state->ctx, NULL, state->newest_mem_block);
-//        state->front_ptr = &state->newest_mem_block->mem[LALIST_BLOCK_SIZE];
-//        return state->newest_mem_block->len;
-//    }
-//    return 0;
-//}
-
+// region Emit
+// region Emit Terminators
 void __attribute__((always_inline)) emit_return(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct ReturnIR* ret = &terminator->ir_return;
     // BTW, PARAM_NO_REG shouldn't be possible to ever make
@@ -411,7 +396,9 @@ void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator,
         asm_emit_test_r64_r64(RAX, RAX, state);
     }
 }
+// endregion
 
+// region Emit Instructions
 void __attribute__((always_inline)) emit_int(Instruction* instruction, struct AssemblerState* state) {
     struct IntIR* instr = &instruction->ir_int;
     if (IS_ASSIGNED(GET_REG(instr))) {
@@ -677,7 +664,7 @@ void __attribute__((always_inline)) emit_call(Instruction* instruction, struct A
     if (push_rdx) asm_emit_push_r64(RDX, state);
     if (push_rax) asm_emit_push_r64(RAX, state);
 }
-
+// endregion
 
 void __attribute__((always_inline)) emit_terminator(union TerminatorIR* terminator_ir, struct AssemblerState* state) {
     switch (terminator_ir->ir_base.id) {
@@ -710,8 +697,9 @@ void __attribute__((always_inline)) emit_instruction(Instruction* instruction_ir
             exit(-1);
     }
 }
+// endregion
 
-
+// region Debug
 void dump_function(struct FunctionIR* func) {
     printf("FUNCTION ");
     int c_i = 0;
@@ -782,8 +770,9 @@ void dump_function(struct FunctionIR* func) {
         i++;
     }
 }
+// endregion
 
-
+// region Compile
 void assign_function_parameters(struct FunctionIR* func) {
     struct BlockIR* first_block = lalist_get(func->first_blocks, sizeof(struct BlockIR), 0);
     int param_num = 0;
@@ -808,7 +797,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 #ifdef OJIT_OPTIMIZATIONS
     ojit_optimize_func(func, callback);
 #endif
-    dump_function(func);
+//    dump_function(func);
 
     struct AssemblerState state;
     state.ctx = compiler_mem;
@@ -845,37 +834,6 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
         i++;
     }
 
-//    LAListIter block_iter;
-//    lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
-//    struct BlockIR* block = lalist_iter_next(&block_iter); // start from the first block so entry is always first
-//
-//    LAListIter instr_iter;
-//    int i = 0;
-//    while (i < func->num_blocks) {
-//        LAList* init_mem = lalist_grow(compiler_mem, NULL, NULL);
-//        block_records[i].block = block;
-//        block_records[i].offset = generated_size;
-//        block_records[i].last_mem_block = init_mem;
-//        block_records[i].offset_records = lalist_grow(compiler_mem, NULL, NULL);
-//        init_asm_state(&state, block, init_mem, &block_records[i].offset_records, callback);
-//
-//        emit_terminator(&block->terminator, &state);
-//
-//        lalist_init_iter(&instr_iter, block->last_instrs, sizeof(Instruction));
-//        lalist_iter_position(&instr_iter, block->last_instrs->len);
-//        Instruction* instr = lalist_iter_prev(&instr_iter);
-//        int k = 0;
-//        while (instr) {
-//            emit_instruction(instr, &state);
-//            instr = lalist_iter_prev(&instr_iter);
-//            k += 1;
-//        }
-//        state.newest_mem_block->len = LALIST_BLOCK_SIZE - (state.front_ptr - state.newest_mem_block->mem);
-//        generated_size += offset_from_end(&state);
-//
-//        block = lalist_iter_next(&block_iter);
-//        i++;
-//    }
     uint8_t* func_mem = ojit_alloc(compiler_mem, generated_size);
     uint8_t* write_ptr = func_mem + generated_size;
 
