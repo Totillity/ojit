@@ -108,6 +108,24 @@ Register64 get_unused(const bool* registers) {
     }
     return NO_REG;
 }
+
+
+Register64 instr_fetch_reg(IRValue instr, Register64 suggested, struct AssemblerState* state) {
+    Register64 reg = GET_REG(instr);
+    if (!IS_ASSIGNED(reg)) {
+        if (state->used_registers[suggested]) {      // Since NO_REG will always be assigned, we don't need to have a specific check
+            reg = get_unused(state->used_registers);
+            if (reg == NO_REG) {
+                printf("Too many registers used concurrently\n");
+                exit(-1);  // TODO spilled registers
+            }
+        } else {
+            reg = suggested;
+        }
+        instr_assign_reg(instr, reg);
+    }
+    return reg;
+}
 // endregion
 
 // region Emit Assembly
@@ -262,7 +280,14 @@ void __attribute__((always_inline)) asm_emit_jmp(struct BlockIR* target, struct 
     asm_emit_byte(0xE9, state);
 }
 
-void __attribute__((always_inline)) asm_emit_jz(struct BlockIR* target, struct AssemblerState* state) {
+enum JumpCondition {
+    JUMP_IF_EQUAL = 0x84,
+    JUMP_IF_NOT_EQUAL = 0x85,
+    JUMP_IF_ZERO = 0x84,
+    JUMP_IF_NOT_ZERO = 0x85,
+};
+
+void __attribute__((always_inline)) asm_emit_jcc(enum JumpCondition cond, struct BlockIR* target, struct AssemblerState* state) {
 #ifdef OJIT_OPTIMIZATIONS
     if (target->block_num - state->block_num == 1) return;
 #endif
@@ -271,20 +296,7 @@ void __attribute__((always_inline)) asm_emit_jz(struct BlockIR* target, struct A
     record_ptr->target = target;
 
     asm_emit_int32(0xEFBEADDE, state);
-    asm_emit_byte(0x84, state);
-    asm_emit_byte(0x0F, state);
-}
-
-void __attribute__((always_inline)) asm_emit_jnz(struct BlockIR* target, struct AssemblerState* state) {
-#ifdef OJIT_OPTIMIZATIONS
-    if (target->block_num - state->block_num == 1) return;
-#endif
-    struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
-    record_ptr->offset_from_end = offset_from_end(state);
-    record_ptr->target = target;
-
-    asm_emit_int32(0xEFBEADDE, state);
-    asm_emit_byte(0x85, state);
+    asm_emit_byte(cond, state);
     asm_emit_byte(0x0F, state);
 }
 // endregion
@@ -293,18 +305,11 @@ void __attribute__((always_inline)) asm_emit_jnz(struct BlockIR* target, struct 
 // region Emit Terminators
 void __attribute__((always_inline)) emit_return(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct ReturnIR* ret = &terminator->ir_return;
-    // BTW, PARAM_NO_REG shouldn't be possible to ever make
-    if (IS_ASSIGNED(GET_REG(ret->value))) {
-        // if this just returns a parameter (which could already be assigned), then move the parameter to RAX to return it
-        Register64 value_reg = GET_REG(ret->value);
-
-        asm_emit_byte(0xC3, state);
+    Register64 value_reg = instr_fetch_reg(ret->value, RAX, state);
+    mark_register(value_reg, state);
+    asm_emit_byte(0xC3, state);
+    if (value_reg != RAX) {
         asm_emit_mov_r64_r64(RAX, value_reg, state);
-    } else {
-        instr_assign_reg(ret->value, RAX);
-        mark_register(RAX, state);
-
-        asm_emit_byte(0xC3, state);
     }
 }
 
@@ -335,21 +340,15 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
 
             Register64 param_reg = param->entry_reg;
             Register64 argument_reg = GET_REG(argument);
-            bool param_assigned = IS_ASSIGNED(param_reg);
-            bool arg_assigned = IS_ASSIGNED(argument_reg);
 
-            if (param_assigned && arg_assigned) {
-                if (REG_IS_MARKED(param_reg)) {
-                    printf("something here also used the register the argument needs to go into");
-                    exit(-1);
-                }
-                asm_emit_mov_r64_r64(param_reg, argument_reg, state);
-            } else if (param_assigned) {
-                instr_assign_reg(argument, param_reg);  // TODO we need to check this
-                mark_register(GET_REG(argument), state);
-            } else if (arg_assigned) {
+            if (!IS_ASSIGNED(param_reg)) {
                 if (target_registers[argument_reg]) {
-                    param_reg = get_unused(target_registers);
+                    for (Register64 reg = 0; reg < 16; reg++) {
+                        if (!target_registers[reg] && !state->used_registers[reg]) {
+                            param_reg = reg;
+                            break;
+                        }
+                    }
                     if (param_reg == NO_REG) {
                         printf("Too many registers used concurrently");
                         exit(-1);  // TODO register spilling
@@ -359,29 +358,17 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
                 }
                 target_registers[param_reg] = true;
                 param->entry_reg = param_reg;
-                asm_emit_mov_r64_r64(param_reg, argument_reg, state);
             } else {
-                argument_reg = get_unused(state->used_registers);
-                if (argument_reg == NO_REG) {
-                    printf("Too many registers used concurrently");
-                    exit(-1);  // TODO register spilling
+                if (REG_IS_MARKED(param_reg)) {
+                    printf("something here also used the register the argument needs to go into\n");
+                    exit(-1);  // TODO oh god not again
                 }
-                instr_assign_reg(argument, argument_reg);
-                mark_register(argument_reg, state);
-
-                if (target_registers[argument_reg]) {
-                    param_reg = get_unused(target_registers);
-                    if (param_reg == NO_REG) {
-                        printf("Too many registers used concurrently");
-                        exit(-1);  // TODO register spilling
-                    }
-                } else {
-                    param_reg = argument_reg;
-                }
-                target_registers[param_reg] = true;
-                param->entry_reg = param_reg;
-                asm_emit_mov_r64_r64(param_reg, argument_reg, state);
             }
+            if (!IS_ASSIGNED(argument_reg)) {
+                argument_reg = instr_fetch_reg(argument, param_reg, state);
+                mark_register(argument_reg, state);
+            }
+            asm_emit_mov_r64_r64(param_reg, argument_reg, state);
         } else {
             break;
         }
@@ -399,25 +386,13 @@ void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, 
 void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct CBranchIR* cbranch = &terminator->ir_cbranch;
 
-    asm_emit_jnz(cbranch->true_target, state);  // comeback to this later after I've stitched everything together
-
-    asm_emit_jz(cbranch->false_target, state);  // comeback to this later after I've stitched everything together
-
+    asm_emit_jcc(JUMP_IF_NOT_ZERO, cbranch->true_target, state);  // comeback to this later after I've stitched everything together
     resolve_branch(cbranch->true_target, state);
+    asm_emit_jcc(JUMP_IF_ZERO, cbranch->false_target, state);  // comeback to this later after I've stitched everything together
     resolve_branch(cbranch->false_target, state);
 
-    if (IS_ASSIGNED(GET_REG(cbranch->cond))) {
-        // if this just returns a parameter (which could already be assigned), then move the parameter to RAX to return it
-        Register64 value_reg = GET_REG(cbranch->cond);
-
-        asm_emit_test_r64_r64(RAX, RAX, state);
-        asm_emit_mov_r64_r64(RAX, value_reg, state);
-    } else {
-        instr_assign_reg(cbranch->cond, RAX);
-        mark_register(RAX, state);
-
-        asm_emit_test_r64_r64(RAX, RAX, state);
-    }
+    Register64 value_reg = instr_fetch_reg(cbranch->cond, NO_REG, state);
+    asm_emit_test_r64_r64(value_reg, value_reg, state);
 }
 // endregion
 
@@ -591,8 +566,8 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
 void __attribute__((always_inline)) emit_block_parameter(Instruction* instruction, struct AssemblerState* state) {
     struct ParameterIR* instr = &instruction->ir_parameter;
 
-    if (!IS_ASSIGNED(GET_REG(instr))) return;
     Register64 this_reg = GET_REG(instr);
+    if (!IS_ASSIGNED(this_reg)) return;
     // by unmarking the register the result is stored in, we can use it as the register of one of the arguments
     unmark_register(this_reg, state);
 
@@ -832,11 +807,11 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 
     int i = 0;
     FOREACH(block, func->first_blocks, struct BlockIR) {
-        LAList* init_mem = lalist_grow(compiler_mem, NULL, NULL);
+        LAList* init_mem = lalist_new(compiler_mem);
         block_records[i].block = block;
         block_records[i].offset = generated_size;
         block_records[i].last_mem_block = init_mem;
-        block_records[i].offset_records = lalist_grow(compiler_mem, NULL, NULL);
+        block_records[i].offset_records = lalist_new(compiler_mem);
         init_asm_state(&state, block, init_mem, &block_records[i].offset_records, callback);
 
         emit_terminator(&block->terminator, &state);

@@ -9,6 +9,12 @@
                                            type* iter_var; \
                                            while (((iter_var) = lalist_iter_next(&iter_##iter_var)) != NULL)
 
+#define FOREACH_REV(iter_var, iter_over, type) LAListIter iter_##iter_var; \
+                                               lalist_init_iter(&iter_##iter_var, (iter_over), sizeof(type)); \
+                                               lalist_iter_position(&iter_##iter_var, iter_##iter_var.curr_list->len); \
+                                               type* iter_var; \
+                                               while (((iter_var) = lalist_iter_prev(&iter_##iter_var)) != NULL)
+
 #define LALIST_BLOCK_SIZE (500)
 
 typedef struct s_OJITMemCtx MemCtx;
@@ -26,6 +32,7 @@ typedef struct s_LAList {
 } LAList;  // linked array list
 
 LAList* lalist_grow(MemCtx* mem, LAList* prev, LAList* next);
+LAList* lalist_new(MemCtx* mem);
 bool lalist_can_add(LAList* lalist, size_t item_size);
 void* lalist_grow_add(LAList** lalist_ptr, size_t item_size);
 //void* lalist_add(LAList* lalist, size_t item_size);

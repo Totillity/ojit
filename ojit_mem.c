@@ -78,6 +78,10 @@ LAList* lalist_grow(MemCtx* mem, LAList* prev, LAList* next) {
     return node;
 }
 
+LAList* lalist_new(MemCtx* mem) {
+    return lalist_grow(mem, NULL, NULL);
+}
+
 bool lalist_can_add(LAList* lalist, size_t item_size) {
     return lalist->len + item_size > LALIST_BLOCK_SIZE;
 }
@@ -134,11 +138,11 @@ void* lalist_iter_next(LAListIter* iter) {
 void* lalist_iter_prev(LAListIter* iter) {
     if (iter->curr_index < iter->item_size) {
         iter->curr_list = iter->curr_list->prev;
-        if (iter->curr_list) iter->curr_index = iter->curr_list->len - iter->item_size;
-    } else {
-        iter->curr_index -= iter->item_size;
+        if (iter->curr_list == NULL) return NULL;
+        iter->curr_index = iter->curr_list->len;
     }
-    if (iter->curr_list == NULL) return NULL;
+    iter->curr_index -= iter->item_size;
+
     void* item = &iter->curr_list->mem[iter->curr_index];
     return item;
 }
