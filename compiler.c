@@ -23,6 +23,7 @@ struct BlockRecord {
 
 struct AssemblerState {
     struct BlockIR* block;
+    size_t block_num;
     uint8_t* front_ptr;
     bool used_registers[16];
     uint32_t block_generated;
@@ -37,6 +38,7 @@ struct AssemblerState {
 
 void init_asm_state(struct AssemblerState* state, struct BlockIR* block, LAList* init_mem, LAList** offset_records_ptr, struct GetFunctionCallback callback) {
     state->block = block;
+    state->block_num = block->block_num;
     state->front_ptr = &init_mem->mem[LALIST_BLOCK_SIZE];
 
     // Windows makes you assume the registers RBX, RSI, RDI, RBP, R12-R15 are used
@@ -108,7 +110,7 @@ Register64 get_unused(const bool* registers) {
 }
 // endregion
 
-// region asm utility
+// region Emit Assembly
 #define REX(w, r, x, b) ((uint8_t) (0b01000000 | ((w) << 3) | ((r) << 2) | ((x) << 1) | ((b))))
 #define MODRM(mod, reg, rm) (((mod) << 6) | ((reg) << 3) | (rm))
 
@@ -226,22 +228,20 @@ void __attribute__((always_inline)) asm_emit_add_r64_i32(Register64 source, uint
                 asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), state);
             }
         }
-    } else {
-#endif
-        if (source == RAX) {
-            asm_emit_int32(constant, state);
-            asm_emit_byte(0x05, state);
-        } else {
-            asm_emit_int32(constant, state);
-            asm_emit_byte(MODRM(0b11, 0, source & 0b0111), state);
-            asm_emit_byte(0x81, state);
-            if (source & 0b1000) {
-                asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), state);
-            }
-        }
-#ifdef OJIT_OPTIMIZATIONS
+        return;
+    }
+    if (source == RAX) {
+        asm_emit_int32(constant, state);
+        asm_emit_byte(0x05, state);
+        return;
     }
 #endif
+    asm_emit_int32(constant, state);
+    asm_emit_byte(MODRM(0b11, 0, source & 0b0111), state);
+    asm_emit_byte(0x81, state);
+    if (source & 0b1000) {
+        asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), state);
+    }
 }
 
 void __attribute__((always_inline)) asm_emit_sub_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
@@ -250,6 +250,43 @@ void __attribute__((always_inline)) asm_emit_sub_r64_r64(Register64 dest, Regist
     asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
 }
 
+void __attribute__((always_inline)) asm_emit_jmp(struct BlockIR* target, struct AssemblerState* state) {
+#ifdef OJIT_OPTIMIZATIONS
+    if (target->block_num - state->block_num == 1) return;
+#endif
+    struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
+    record_ptr->offset_from_end = offset_from_end(state);
+    record_ptr->target = target;
+
+    asm_emit_int32(0xEFBEADDE, state);
+    asm_emit_byte(0xE9, state);
+}
+
+void __attribute__((always_inline)) asm_emit_jz(struct BlockIR* target, struct AssemblerState* state) {
+#ifdef OJIT_OPTIMIZATIONS
+    if (target->block_num - state->block_num == 1) return;
+#endif
+    struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
+    record_ptr->offset_from_end = offset_from_end(state);
+    record_ptr->target = target;
+
+    asm_emit_int32(0xEFBEADDE, state);
+    asm_emit_byte(0x84, state);
+    asm_emit_byte(0x0F, state);
+}
+
+void __attribute__((always_inline)) asm_emit_jnz(struct BlockIR* target, struct AssemblerState* state) {
+#ifdef OJIT_OPTIMIZATIONS
+    if (target->block_num - state->block_num == 1) return;
+#endif
+    struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
+    record_ptr->offset_from_end = offset_from_end(state);
+    record_ptr->target = target;
+
+    asm_emit_int32(0xEFBEADDE, state);
+    asm_emit_byte(0x85, state);
+    asm_emit_byte(0x0F, state);
+}
 // endregion
 
 // region Emit
@@ -354,11 +391,7 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
 void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct BranchIR* branch = &terminator->ir_branch;
 
-    struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
-    record_ptr->offset_from_end = offset_from_end(state);
-    record_ptr->target = branch->target;
-    asm_emit_int32(0xEFBEADDE, state);  // comeback to this later after I've stitched everything together
-    asm_emit_byte(0xE9, state);
+    asm_emit_jmp(branch->target, state);  // comeback to this later after I've stitched everything together
 
     resolve_branch(branch->target, state);
 }
@@ -366,19 +399,9 @@ void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, 
 void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct CBranchIR* cbranch = &terminator->ir_cbranch;
 
-    struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
-    record_ptr->offset_from_end = offset_from_end(state);
-    record_ptr->target = cbranch->true_target;
-    asm_emit_int32(0xEFBEADDE, state);  // comeback to this later after I've stitched everything together
-    asm_emit_byte(0x85, state);
-    asm_emit_byte(0x0F, state);
+    asm_emit_jnz(cbranch->true_target, state);  // comeback to this later after I've stitched everything together
 
-    record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
-    record_ptr->offset_from_end = offset_from_end(state);
-    record_ptr->target = cbranch->false_target;
-    asm_emit_int32(0xEFBEADDE, state);  // comeback to this later after I've stitched everything together
-    asm_emit_byte(0x84, state);
-    asm_emit_byte(0x0F, state);
+    asm_emit_jz(cbranch->false_target, state);  // comeback to this later after I've stitched everything together
 
     resolve_branch(cbranch->true_target, state);
     resolve_branch(cbranch->false_target, state);
