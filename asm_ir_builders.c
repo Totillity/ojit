@@ -2,8 +2,11 @@
 #include "asm_ir_builders.h"
 
 
+struct BlockIR* function_add_block(struct FunctionIR* func, MemCtx* ctx);
+
+
 IRBuilder* create_builder(struct FunctionIR* function_ir, MemCtx* ctx) {
-IRBuilder* builder = ojit_alloc(ctx, sizeof(IRBuilder));
+    IRBuilder* builder = ojit_alloc(ctx, sizeof(IRBuilder));
     builder->function = function_ir;
     builder->ir_mem = ctx;
     builder->current_block = lalist_get(function_ir->first_blocks, sizeof(Instruction), 0);
@@ -11,11 +14,8 @@ IRBuilder* builder = ojit_alloc(ctx, sizeof(IRBuilder));
 }
 
 Instruction* builder_add_instr(IRBuilder* builder) {
-    if (builder->current_block->last_instrs->len + sizeof(Instruction) > LALIST_BLOCK_SIZE) {
-        builder->current_block->last_instrs = lalist_grow(builder->ir_mem, builder->current_block->last_instrs, NULL);
-    }
     builder->current_block->num_instrs++;
-    return lalist_add(builder->current_block->last_instrs, sizeof(Instruction));
+    return lalist_grow_add(&builder->current_block->last_instrs, sizeof(Instruction));
 }
 
 
@@ -24,14 +24,28 @@ struct BlockIR* builder_add_block(IRBuilder* builder) {
 }
 
 
-void builder_goto_block(IRBuilder* builder, struct BlockIR* block_ir) {
+void builder_temp_swap_block(IRBuilder* builder, struct BlockIR* block_ir) {
     builder->current_block = block_ir;
 }
 
+void builder_enter_block(IRBuilder* builder, struct BlockIR* block_ir) {
+    builder->current_block = block_ir;
+    FOREACH_INSTR(curr_instr, block_ir->first_instrs) {
+        if (curr_instr->base.id == ID_BLOCK_PARAMETER_IR) {
+            struct ParameterIR* param = &curr_instr->ir_parameter;
+            builder_add_variable(builder, param->var_name, (IRValue) param);
+        } else {
+            break;
+        }
+    }
+}
 
-IRValue builder_add_parameter(IRBuilder* builder) {
+
+IRValue builder_add_parameter(IRBuilder* builder, String var_name) {
     struct ParameterIR* instr = &builder_add_instr(builder)->ir_parameter;
-    instr->base.id = ID_PARAMETER_IR;
+    instr->var_name = var_name;
+    instr->entry_reg = NO_REG;
+    instr->base.id = ID_BLOCK_PARAMETER_IR;
     instr->base.reg = NO_REG;
     return (IRValue) instr;
 }
@@ -96,7 +110,7 @@ IRValue builder_Call(IRBuilder* builder, IRValue callee) {
 
 void builder_Call_argument(IRValue call_instr, IRValue argument) {
     struct CallIR* instr = &call_instr->ir_call;
-    Instruction** ptr = lalist_add(instr->arguments, sizeof(IRValue));
+    Instruction** ptr = lalist_grow_add(&instr->arguments, sizeof(IRValue));
     *ptr = argument;
 }
 
@@ -114,19 +128,58 @@ void builder_Return(IRBuilder* builder, IRValue value) {
     term->base.id = ID_RETURN_IR;
 }
 
-void builder_Branch(IRBuilder* builder, struct BlockIR* target, size_t arg_count, IRValue* arguments) {
-    struct BranchIR* term = &builder->current_block->terminator.ir_branch;
-    term->target = target;
-    term->arguments = ojit_alloc(builder->ir_mem, sizeof(IRValue) * arg_count);
-    ojit_memcpy(term->arguments, arguments, sizeof(IRValue) * arg_count);
-    term->base.id = ID_BRANCH_IR;
+void merge_blocks(IRBuilder* builder, struct BlockIR* to, struct BlockIR* from) {
+    if (to->has_vars) {
+        FOREACH_INSTR(curr_instr, to->first_instrs) {
+            if (curr_instr->base.id == ID_BLOCK_PARAMETER_IR) {
+                struct ParameterIR* param = &curr_instr->ir_parameter;
+                if (!hash_table_has(&from->variables, param->var_name)) {
+                    param->var_name = NULL;
+                }
+            } else {
+                break;
+            }
+        }
+    } else {
+        struct BlockIR* original_block = builder->current_block;
+        builder_temp_swap_block(builder, to);
+        TableEntry* curr_entry = from->variables.last_entry;
+        while (curr_entry) {
+            builder_add_parameter(builder, curr_entry->key);
+            curr_entry = curr_entry->prev;
+        }
+        builder_temp_swap_block(builder, original_block);
+        to->has_vars = true;
+    }
 }
 
+void builder_Branch(IRBuilder* builder, struct BlockIR* target) {
+    struct BranchIR* term = &builder->current_block->terminator.ir_branch;
+    term->target = target;
 
+    term->base.id = ID_BRANCH_IR;
+
+    merge_blocks(builder, target, builder->current_block);
+}
+
+void builder_CBranch(IRBuilder* builder, IRValue cond, struct BlockIR* true_target, struct BlockIR* false_target) {
+    struct CBranchIR* term = &builder->current_block->terminator.ir_cbranch;
+    term->cond = cond;
+    term->true_target = true_target;
+    term->false_target = false_target;
+    term->base.id = ID_CBRANCH_IR;
+
+    merge_blocks(builder, true_target, builder->current_block);
+    merge_blocks(builder, false_target, builder->current_block);
+}
 
 void init_block(struct BlockIR* block, size_t block_num, MemCtx* ctx) {
     block->first_instrs = block->last_instrs = lalist_grow(ctx, NULL, NULL);
+    block->num_instrs = 0;
+
     block->terminator.ir_base.id = ID_TERM_NONE;
+
+    block->has_vars = false;
     init_hash_table(&block->variables, ctx);
     block->block_num = block_num;
 }
@@ -144,10 +197,7 @@ struct FunctionIR* create_function(String name, MemCtx* ctx) {
 }
 
 struct BlockIR* function_add_block(struct FunctionIR* func, MemCtx* ctx) {
-    if (func->last_blocks->len + sizeof(struct BlockIR) > LALIST_BLOCK_SIZE) {
-        func->last_blocks = lalist_grow(ctx, func->last_blocks, NULL);
-    }
-    struct BlockIR* block = lalist_add(func->last_blocks, sizeof(struct BlockIR));
+    struct BlockIR* block = lalist_grow_add(&func->last_blocks, sizeof(struct BlockIR));
     init_block(block, func->num_blocks++, ctx);
     return block;
 }

@@ -36,3 +36,7 @@ void ojit_error() {
     puts(err_msg_buf);
     puts("\n");
 }
+
+void ojit_exit(int code) {
+    exit(code);
+}

@@ -3,7 +3,9 @@
 
 #include "ojit_def.h"
 #include "compiler.h"
+#ifdef OJIT_OPTIMIZATIONS
 #include "ir_opt.h"
+#endif
 
 
 // region Compilation
@@ -19,16 +21,34 @@ Register64 get_unused(const bool* registers) {
 // endregion
 
 
+struct OffsetRecord {
+    uint32_t offset_from_end;
+    struct BlockIR* target;
+};
+
+struct BlockRecord {
+    struct BlockIR* block;
+    size_t offset;
+    LAList* last_mem_block;
+    LAList* offset_records;
+};
+
 struct AssemblerState {
+    struct BlockIR* block;
     uint8_t* front_ptr;
     bool used_registers[16];
-    LAList* newest_block;
+    uint32_t block_generated;
+    LAList* newest_mem_block;
+    LAList** offset_records_ptr;
+    enum Register64 swap_owner_of[16];
+    enum Register64 swap_contents[16];
     MemCtx* ctx;
     struct GetFunctionCallback callback;
 };
 
 
-void init_asm_state(struct AssemblerState* state, LAList* init_mem, struct GetFunctionCallback callback) {
+void init_asm_state(struct AssemblerState* state, struct BlockIR* block, LAList* init_mem, LAList** offset_records_ptr, struct GetFunctionCallback callback) {
+    state->block = block;
     state->front_ptr = &init_mem->mem[LALIST_BLOCK_SIZE];
 
     // Windows makes you assume the registers RBX, RSI, RDI, RBP, R12-R15 are used
@@ -52,14 +72,21 @@ void init_asm_state(struct AssemblerState* state, LAList* init_mem, struct GetFu
     state->used_registers[R14]         = true;
     state->used_registers[R15]         = true;
 
-    state->newest_block = init_mem;
+    for (int i = 0; i < 16; i++) {
+        state->swap_owner_of[i] = i;
+        state->swap_contents[i] = i;
+    }
+
+    state->block_generated = 0;
+    state->offset_records_ptr = offset_records_ptr;
+    state->newest_mem_block = init_mem;
     state->callback.compiled_callback = callback.compiled_callback;
     state->callback.jit_ptr = callback.jit_ptr;
 }
 
 
 #define GET_REG(value) ((value)->base.reg)
-#define SET_REG(value, regi) ((value)->base.reg = (regi))
+#define SET_REG(value, reg_) ((value)->base.reg = (reg_))
 #define REG_IS_MARKED(reg) (state->used_registers[(reg)])
 
 
@@ -68,6 +95,12 @@ void init_asm_state(struct AssemblerState* state, LAList* init_mem, struct GetFu
 #define MODRM(mod, reg, rm) (((mod) << 6) | ((reg) << 3) | (rm))
 
 void __attribute__((always_inline)) asm_emit_byte(uint8_t byte, struct AssemblerState* state) {
+    if (state->front_ptr == state->newest_mem_block->mem) {
+        state->newest_mem_block->len = LALIST_BLOCK_SIZE;   // TODO we can optimize this
+        state->block_generated += state->newest_mem_block->len;
+        state->newest_mem_block = lalist_grow(state->ctx, NULL, state->newest_mem_block);
+        state->front_ptr = &state->newest_mem_block->mem[LALIST_BLOCK_SIZE];
+    }
     *(--state->front_ptr) = byte;
 }
 
@@ -91,6 +124,18 @@ void __attribute__((always_inline)) asm_emit_int64(uint64_t constant, struct Ass
     asm_emit_byte((constant >> 16) & 0xFF, state);
     asm_emit_byte((constant >>  8) & 0xFF, state);
     asm_emit_byte((constant >>  0) & 0xFF, state);
+}
+
+void __attribute__((always_inline)) asm_emit_test_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
+    asm_emit_byte(MODRM(0b11, source & 0b111, dest & 0b0111), state);
+    asm_emit_byte(0x85, state);
+    asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
+}
+
+void __attribute__((always_inline)) asm_emit_xchg_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
+    asm_emit_byte(MODRM(0b11, source & 0b111, dest & 0b0111), state);
+    asm_emit_byte(0x87, state);
+    asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
 }
 
 void __attribute__((always_inline)) asm_emit_mov_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
@@ -193,21 +238,15 @@ void __attribute__((always_inline)) asm_emit_sub_r64_r64(Register64 dest, Regist
 // endregion
 
 void __attribute__((always_inline)) mark_register(Register64 reg, struct AssemblerState* state) {
-    assert(state->used_registers[reg] == false);
+    OJIT_ASSERT(state->used_registers[reg] == false, "Attempted to mark a register which is already marked");
+//    assert(state->used_registers[reg] == false);
     state->used_registers[reg] = true;
 }
 
 void __attribute__((always_inline)) unmark_register(Register64 reg, struct AssemblerState* state) {
-    assert(state->used_registers[reg] == true);
+    OJIT_ASSERT(state->used_registers[reg] == true, "Attempted to unmark a register which is already unmarked");
+//    assert(state->used_registers[reg] == true);
     state->used_registers[reg] = false;
-}
-
-Instruction* __attribute__((always_inline)) instr_ensure(Instruction* instr, struct AssemblerState* state) {
-    if (IS_PARAM_REG(GET_REG(instr))) {
-        SET_REG(instr, NORMALIZE_REG(GET_REG(instr)));
-        mark_register(GET_REG(instr), state);
-    }
-    return instr;
 }
 
 void __attribute__((always_inline)) instr_assign_reg(Instruction* instr, Register64 reg) {
@@ -215,22 +254,27 @@ void __attribute__((always_inline)) instr_assign_reg(Instruction* instr, Registe
     SET_REG(instr, reg);
 }
 
-size_t __attribute__((always_inline)) check_new_block(struct AssemblerState* state) {
-    if (state->front_ptr - state->newest_block->mem < (MAXIMUM_INSTRUCTION_SIZE + 1)) {
-        state->newest_block->len = LALIST_BLOCK_SIZE - (state->front_ptr - state->newest_block->mem);
-        state->newest_block = lalist_grow(state->ctx, NULL, state->newest_block);
-        state->front_ptr = &state->newest_block->mem[LALIST_BLOCK_SIZE];
-        return state->newest_block->len;
-    }
-    return 0;
+uint32_t offset_from_end(struct AssemblerState* state) {
+    uint32_t block_size = LALIST_BLOCK_SIZE - (state->front_ptr - state->newest_mem_block->mem);
+    return block_size + state->block_generated;
 }
+
+//size_t __attribute__((always_inline)) check_new_block(struct AssemblerState* state) {
+//    if (state->front_ptr - state->newest_mem_block->mem < (MAXIMUM_INSTRUCTION_SIZE + 1)) {
+//        state->newest_mem_block->len = LALIST_BLOCK_SIZE - (state->front_ptr - state->newest_mem_block->mem);
+//        state->newest_mem_block = lalist_grow(state->ctx, NULL, state->newest_mem_block);
+//        state->front_ptr = &state->newest_mem_block->mem[LALIST_BLOCK_SIZE];
+//        return state->newest_mem_block->len;
+//    }
+//    return 0;
+//}
 
 void __attribute__((always_inline)) emit_return(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct ReturnIR* ret = &terminator->ir_return;
     // BTW, PARAM_NO_REG shouldn't be possible to ever make
-    if (IS_ASSIGNED(ret->value->base.reg)) {
+    if (IS_ASSIGNED(GET_REG(ret->value))) {
         // if this just returns a parameter (which could already be assigned), then move the parameter to RAX to return it
-        Register64 value_reg = GET_REG(instr_ensure(ret->value, state));
+        Register64 value_reg = GET_REG(ret->value);
 
         asm_emit_byte(0xC3, state);
         asm_emit_mov_r64_r64(RAX, value_reg, state);
@@ -242,52 +286,129 @@ void __attribute__((always_inline)) emit_return(union TerminatorIR* terminator, 
     }
 }
 
+void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struct AssemblerState* state) {
+    bool target_registers[16] = {
+            [RAX] = false,
+            [RCX] = false,
+            [RDX] = false,
+            [RBX] = false,
+            [NO_REG]      = true,
+            [SPILLED_REG] = true,
+            [RSI] = false,
+            [RDI] = false,
+            [R8]  = false,
+            [R9]  = false,
+            [R10] = false,
+            [R11] = false,
+            [TMP_1_REG]   = true,
+            [TMP_2_REG]   = true,
+            [R14] = false,
+            [R15] = false,
+    };
+
+    FOREACH_INSTR(instr, target->first_instrs) {
+        if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
+            struct ParameterIR* param = &instr->ir_parameter;
+            IRValue argument; hash_table_get(&state->block->variables, param->var_name, (uint64_t*) &argument);
+
+            Register64 param_reg = param->entry_reg;
+            Register64 argument_reg = GET_REG(argument);
+            bool param_assigned = IS_ASSIGNED(param_reg);
+            bool arg_assigned = IS_ASSIGNED(argument_reg);
+
+            if (param_assigned && arg_assigned) {
+                if (REG_IS_MARKED(param_reg)) {
+                    printf("something here also used the register the argument needs to go into");
+                    exit(-1);
+                }
+                asm_emit_mov_r64_r64(param_reg, argument_reg, state);
+            } else if (param_assigned) {
+                instr_assign_reg(argument, param_reg);  // TODO we need to check this
+                mark_register(GET_REG(argument), state);
+            } else if (arg_assigned) {
+                if (target_registers[argument_reg]) {
+                    param_reg = get_unused(target_registers);
+                    if (param_reg == NO_REG) {
+                        printf("Too many registers used concurrently");
+                        exit(-1);  // TODO register spilling
+                    }
+                } else {
+                    param_reg = argument_reg;
+                }
+                target_registers[param_reg] = true;
+                param->entry_reg = param_reg;
+                asm_emit_mov_r64_r64(param_reg, argument_reg, state);
+            } else {
+                argument_reg = get_unused(state->used_registers);
+                if (argument_reg == NO_REG) {
+                    printf("Too many registers used concurrently");
+                    exit(-1);  // TODO register spilling
+                }
+                instr_assign_reg(argument, argument_reg);
+                mark_register(argument_reg, state);
+
+                if (target_registers[argument_reg]) {
+                    param_reg = get_unused(target_registers);
+                    if (param_reg == NO_REG) {
+                        printf("Too many registers used concurrently");
+                        exit(-1);  // TODO register spilling
+                    }
+                } else {
+                    param_reg = argument_reg;
+                }
+                target_registers[param_reg] = true;
+                param->entry_reg = param_reg;
+                asm_emit_mov_r64_r64(param_reg, argument_reg, state);
+            }
+        } else {
+            break;
+        }
+    }
+}
+
 void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct BranchIR* branch = &terminator->ir_branch;
 
+    struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
+    record_ptr->offset_from_end = offset_from_end(state);
+    record_ptr->target = branch->target;
     asm_emit_int32(0xEFBEADDE, state);  // comeback to this later after I've stitched everything together
-    asm_emit_byte(0x89, state);
+    asm_emit_byte(0xE9, state);
 
-    LAList* instrs = branch->target->first_instrs;
-    size_t instrs_index = 0;
-    for (int k = 0; k < branch->argument_count; k++) {
-        IRValue argument = branch->arguments[k];
-        if (instrs_index > (LALIST_BLOCK_SIZE - sizeof(IRValue))) {
-            instrs = instrs->next;
-        }
-        struct ParameterIR* param = (struct ParameterIR*) &instrs->mem[instrs_index];
-        instrs_index += sizeof(IRValue);
-        if (param->base.id != ID_PARAMETER_IR) {
-            printf("Too many arguments");
-            exit(-1);  // TODO programmer error
-        }
+    resolve_branch(branch->target, state);
+}
 
-        Register64 param_reg = GET_REG(param);
-        Register64 argument_reg = GET_REG(instr_ensure(argument, state));
-        bool param_assigned = IS_ASSIGNED(param_reg);
-        bool arg_assigned = IS_ASSIGNED(argument_reg);
+void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator, struct AssemblerState* state) {
+    struct CBranchIR* cbranch = &terminator->ir_cbranch;
 
-        if (param_assigned && arg_assigned) {
-            if (REG_IS_MARKED(param_reg)) {
-                printf("something here also used the register the argument needs to go into");
-                exit(-1);
-            }
-            asm_emit_mov_r64_r64(param_reg, argument_reg, state);
-        } else if (param_assigned) {
-            instr_assign_reg(argument, param_reg);  // TODO we need to check this
-            mark_register(GET_REG(argument), state);
-        } else if (arg_assigned) {
-            instr_assign_reg((Instruction*) param, AS_PARAM_REG(argument_reg));
-        } else {
-            Register64 new_reg = get_unused(state->used_registers);
-            if (new_reg == NO_REG) {
-                printf("Too many registers used concurrently");
-                exit(-1);  // TODO register spilling
-            }
-            instr_assign_reg(argument, new_reg);
-            mark_register(GET_REG(argument), state);
-            instr_assign_reg((Instruction*) param, AS_PARAM_REG(new_reg));
-        }
+    struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
+    record_ptr->offset_from_end = offset_from_end(state);
+    record_ptr->target = cbranch->true_target;
+    asm_emit_int32(0xEFBEADDE, state);  // comeback to this later after I've stitched everything together
+    asm_emit_byte(0x85, state);
+    asm_emit_byte(0x0F, state);
+
+    record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
+    record_ptr->offset_from_end = offset_from_end(state);
+    record_ptr->target = cbranch->false_target;
+    asm_emit_int32(0xEFBEADDE, state);  // comeback to this later after I've stitched everything together
+    asm_emit_byte(0x84, state);
+    asm_emit_byte(0x0F, state);
+
+    resolve_branch(cbranch->true_target, state);
+    resolve_branch(cbranch->false_target, state);
+
+    if (IS_ASSIGNED(GET_REG(cbranch->cond))) {
+        // if this just returns a parameter (which could already be assigned), then move the parameter to RAX to return it
+        Register64 value_reg = GET_REG(cbranch->cond);
+
+        asm_emit_test_r64_r64(RAX, RAX, state);
+        asm_emit_mov_r64_r64(RAX, value_reg, state);
+    } else {
+        instr_assign_reg(cbranch->cond, RAX);
+        mark_register(RAX, state);
+
+        asm_emit_test_r64_r64(RAX, RAX, state);
     }
 }
 
@@ -304,13 +425,14 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
 
     if (!IS_ASSIGNED(GET_REG(instr))) return;
     Register64 this_reg = GET_REG(instr);
-    // by unmarking the register the result is stored in, we can use it as the register of one of the arguments
-    unmark_register(this_reg, state);
 
-    Register64 a_register = GET_REG(instr_ensure(instr->a, state));
-    Register64 b_register = GET_REG(instr_ensure(instr->b, state));
+    Register64 a_register = GET_REG(instr->a);
+    Register64 b_register = GET_REG(instr->b);
     bool a_assigned = IS_ASSIGNED(a_register);
     bool b_assigned = IS_ASSIGNED(b_register);
+
+    // by unmarking the register the result is stored in, we can use it as the register of one of the arguments
+    unmark_register(this_reg, state);
 
 #ifdef OJIT_OPTIMIZATIONS
     if (instr->a->base.id == ID_INT_IR) {
@@ -407,8 +529,8 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
     // by unmarking the register the result is stored in, we can use it as the register of one of the arguments
     unmark_register(this_reg, state);
 
-    Register64 a_register = GET_REG(instr_ensure(instr->a, state));
-    Register64 b_register = GET_REG(instr_ensure(instr->b, state));
+    Register64 a_register = GET_REG(instr->a);
+    Register64 b_register = GET_REG(instr->b);
     bool a_assigned = IS_ASSIGNED(a_register);
     bool b_assigned = IS_ASSIGNED(b_register);
 
@@ -456,6 +578,19 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
     }
 }
 
+void __attribute__((always_inline)) emit_block_parameter(Instruction* instruction, struct AssemblerState* state) {
+    struct ParameterIR* instr = &instruction->ir_parameter;
+
+    if (!IS_ASSIGNED(GET_REG(instr))) return;
+    Register64 this_reg = GET_REG(instr);
+    // by unmarking the register the result is stored in, we can use it as the register of one of the arguments
+    unmark_register(this_reg, state);
+
+    Register64 entry_reg = instr->entry_reg;
+    asm_emit_xchg_r64_r64(state->swap_owner_of[entry_reg], this_reg, state);
+    state->swap_owner_of[entry_reg] = this_reg;
+}
+
 void __attribute__((always_inline)) emit_global(Instruction* instruction, struct AssemblerState* state) {
     struct GlobalIR* instr = &instruction->ir_global;
 
@@ -501,14 +636,6 @@ void __attribute__((always_inline)) emit_call(Instruction* instruction, struct A
     if (state->used_registers[RDX]) { asm_emit_pop_r64(RDX, state); push_rdx = true;}
     if (state->used_registers[RCX]) { asm_emit_pop_r64(RCX, state); push_rcx = true;}
 
-    size_t offset = 0;
-    while (offset < instr->arguments->len) {
-        void* arg_ptr = instr->arguments->mem + offset;
-        IRValue arg = *(IRValue*) arg_ptr;
-        instr_ensure(arg, state);
-        offset += sizeof(IRValue);
-    }
-
     enum Register64 callee_reg = instr->callee->base.reg;
     if (!IS_ASSIGNED(callee_reg)) {
         callee_reg = get_unused(state->used_registers);
@@ -531,13 +658,11 @@ void __attribute__((always_inline)) emit_call(Instruction* instruction, struct A
     asm_emit_byte(0x83, state);
     asm_emit_byte(0x48, state);
 
-    offset = 0;
-    int i = 0;
-    while (offset < instr->arguments->len) {
-        void* arg_ptr = instr->arguments->mem + offset;
-        IRValue arg = *(IRValue*) arg_ptr;
+    int arg_num = 0;
+    FOREACH(arg_ptr, instr->arguments, IRValue) {
+        IRValue arg = *arg_ptr;
         enum Register64 reg;
-        switch (i) {
+        switch (arg_num) {
             case 0: reg = RCX; break;
             case 1: reg = RDX; break;
             case 2: reg = R8; break;
@@ -545,9 +670,7 @@ void __attribute__((always_inline)) emit_call(Instruction* instruction, struct A
             default: exit(-1);
         }
         asm_emit_mov_r64_r64(reg, arg->base.reg, state);
-
-        offset += sizeof(IRValue);
-        i += 1;
+        arg_num++;
     }
 
     if (push_rcx) asm_emit_push_r64(RCX, state);
@@ -560,6 +683,7 @@ void __attribute__((always_inline)) emit_terminator(union TerminatorIR* terminat
     switch (terminator_ir->ir_base.id) {
         case ID_RETURN_IR: emit_return(terminator_ir, state); break;
         case ID_BRANCH_IR: emit_branch(terminator_ir, state); break;
+        case ID_CBRANCH_IR: emit_cbranch(terminator_ir, state); break;
         case ID_TERM_NONE:
         default:
             ojit_new_error();
@@ -577,7 +701,7 @@ void __attribute__((always_inline)) emit_instruction(Instruction* instruction_ir
         case ID_SUB_IR: emit_sub(instruction_ir, state); break;
         case ID_CALL_IR: emit_call(instruction_ir, state); break;
         case ID_GLOBAL_IR: emit_global(instruction_ir, state); break;
-        case ID_PARAMETER_IR: break;
+        case ID_BLOCK_PARAMETER_IR: emit_block_parameter(instruction_ir, state); break;
         default:
             ojit_new_error();
             ojit_build_error_chars("Broken or Unimplemented instruction: ");
@@ -587,86 +711,199 @@ void __attribute__((always_inline)) emit_instruction(Instruction* instruction_ir
     }
 }
 
-struct BlockRecord {
-    size_t offset;
-    LAList* last_block;
-};
+
+void dump_function(struct FunctionIR* func) {
+    printf("FUNCTION ");
+    int c_i = 0;
+    while (c_i < func->name->length) {
+        putchar(func->name->start_ptr[c_i]);
+        c_i += 1;
+    }
+    printf("\n");
+
+    LAListIter block_iter;
+    lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
+    struct BlockIR* block = lalist_iter_next(&block_iter);
+    int i = 0;
+
+    while (i < func->num_blocks) {
+        printf("    BLOCK @%zu\n", block->block_num);
+        switch (block->terminator.ir_base.id) {
+            case ID_BRANCH_IR: {
+                printf("        BRANCH @%zu\n", block->terminator.ir_branch.target->block_num);
+                break;
+            }
+            case ID_CBRANCH_IR: {
+                printf("        CBRANCH $%p {true: @%zu, false: @%zu}\n", block->terminator.ir_cbranch.cond,
+                       block->terminator.ir_cbranch.true_target->block_num,
+                       block->terminator.ir_cbranch.false_target->block_num);
+                break;
+            }
+            case ID_RETURN_IR: {
+                printf("        RETURN $%p\n", block->terminator.ir_return.value);
+                break;
+            }
+            default: {
+                printf("        UNKNOWN\n");
+            }
+        }
+
+        FOREACH_INSTR(instr, block->first_instrs) {
+            switch (instr->base.id) {
+                case ID_INT_IR: {
+                    printf("        $%p = INT32 %d\n", instr, instr->ir_int.constant);
+                    break;
+                }
+                case ID_BLOCK_PARAMETER_IR: {
+                    printf("        $%p = PARAMETER \"", instr);
+                    int c_ = 0;
+                    while (c_ < instr->ir_parameter.var_name->length) {
+                        putchar(instr->ir_parameter.var_name->start_ptr[c_]);
+                        c_ += 1;
+                    }
+                    printf("\"\n");
+                    break;
+                }
+                case ID_ADD_IR: {
+                    printf("        $%p = ADD $%p, $%p\n", instr, instr->ir_add.a, instr->ir_add.b);
+                    break;
+                }
+                case ID_SUB_IR: {
+                    printf("        $%p = SUB $%p, $%p\n", instr, instr->ir_sub.a, instr->ir_sub.b);
+                    break;
+                }
+                default: {
+                    printf("        $%p = UNKNOWN\n", instr);
+                    break;
+                }
+            }
+        }
+        block = lalist_iter_next(&block_iter);
+        i++;
+    }
+}
+
+
+void assign_function_parameters(struct FunctionIR* func) {
+    struct BlockIR* first_block = lalist_get(func->first_blocks, sizeof(struct BlockIR), 0);
+    int param_num = 0;
+    FOREACH_INSTR(instr, first_block->first_instrs) {
+        if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
+            enum Register64 reg;
+            switch (param_num) {
+                case 0: reg = RCX; break;
+                case 1: reg = RDX; break;
+                case 2: reg = R8; break;
+                case 3: reg = R9; break;
+                default: exit(-1);  // TODO
+            }
+            instr->ir_parameter.entry_reg = reg;
+            param_num += 1;
+        }
+    }
+}
 
 
 struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* compiler_mem, struct GetFunctionCallback callback) {
+#ifdef OJIT_OPTIMIZATIONS
     ojit_optimize_func(func, callback);
+#endif
+    dump_function(func);
 
     struct AssemblerState state;
     state.ctx = compiler_mem;
 
     size_t generated_size = 0;
     struct BlockRecord* block_records = ojit_alloc(compiler_mem, sizeof(struct BlockRecord) * func->num_blocks);
-    LAListIter block_iter;
-    lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
-    struct BlockIR* block = lalist_iter_next(&block_iter);
-    // start from the first block so entry is always first
-    LAListIter instr_iter;
-    Instruction* instr;
-    lalist_init_iter(&instr_iter, block->first_instrs, sizeof(Instruction));
-    instr = lalist_iter_next(&instr_iter);
-    int param_num = 0;
-    while (instr && instr->base.id == ID_PARAMETER_IR) {
-        enum Register64 reg;
-        switch (param_num) {
-            case 0: reg = RCX; break;
-            case 1: reg = RDX; break;
-            case 2: reg = R8; break;
-            case 3: reg = R9; break;
-            default: exit(-1);  // TODO
-        }
-        instr_assign_reg(instr, AS_PARAM_REG(reg));
-        param_num += 1;
-        instr = lalist_iter_next(&instr_iter);
-    }
+
+    assign_function_parameters(func);
 
     int i = 0;
-    while (i < func->num_blocks) {
+    FOREACH(block, func->first_blocks, struct BlockIR) {
         LAList* init_mem = lalist_grow(compiler_mem, NULL, NULL);
+        block_records[i].block = block;
         block_records[i].offset = generated_size;
-        block_records[i].last_block = init_mem;
-        init_asm_state(&state, init_mem, callback);
+        block_records[i].last_mem_block = init_mem;
+        block_records[i].offset_records = lalist_grow(compiler_mem, NULL, NULL);
+        init_asm_state(&state, block, init_mem, &block_records[i].offset_records, callback);
 
         emit_terminator(&block->terminator, &state);
-        generated_size += check_new_block(&state);
 
-
+        LAListIter instr_iter;
         lalist_init_iter(&instr_iter, block->last_instrs, sizeof(Instruction));
-        lalist_iter_position(&instr_iter, block->last_instrs->len - sizeof(Instruction));
-        instr = lalist_iter_prev(&instr_iter);
+        lalist_iter_position(&instr_iter, block->last_instrs->len);
+        Instruction* instr = lalist_iter_prev(&instr_iter);
         int k = 0;
         while (instr) {
             emit_instruction(instr, &state);
-            generated_size += check_new_block(&state);
             instr = lalist_iter_prev(&instr_iter);
             k += 1;
         }
-        state.newest_block->len = LALIST_BLOCK_SIZE - (state.front_ptr - state.newest_block->mem);
-        generated_size += state.newest_block->len;
+        state.newest_mem_block->len = LALIST_BLOCK_SIZE - (state.front_ptr - state.newest_mem_block->mem);
+        generated_size += offset_from_end(&state);
 
-        block = lalist_iter_next(&block_iter);
         i++;
     }
+
+//    LAListIter block_iter;
+//    lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
+//    struct BlockIR* block = lalist_iter_next(&block_iter); // start from the first block so entry is always first
+//
+//    LAListIter instr_iter;
+//    int i = 0;
+//    while (i < func->num_blocks) {
+//        LAList* init_mem = lalist_grow(compiler_mem, NULL, NULL);
+//        block_records[i].block = block;
+//        block_records[i].offset = generated_size;
+//        block_records[i].last_mem_block = init_mem;
+//        block_records[i].offset_records = lalist_grow(compiler_mem, NULL, NULL);
+//        init_asm_state(&state, block, init_mem, &block_records[i].offset_records, callback);
+//
+//        emit_terminator(&block->terminator, &state);
+//
+//        lalist_init_iter(&instr_iter, block->last_instrs, sizeof(Instruction));
+//        lalist_iter_position(&instr_iter, block->last_instrs->len);
+//        Instruction* instr = lalist_iter_prev(&instr_iter);
+//        int k = 0;
+//        while (instr) {
+//            emit_instruction(instr, &state);
+//            instr = lalist_iter_prev(&instr_iter);
+//            k += 1;
+//        }
+//        state.newest_mem_block->len = LALIST_BLOCK_SIZE - (state.front_ptr - state.newest_mem_block->mem);
+//        generated_size += offset_from_end(&state);
+//
+//        block = lalist_iter_next(&block_iter);
+//        i++;
+//    }
     uint8_t* func_mem = ojit_alloc(compiler_mem, generated_size);
     uint8_t* write_ptr = func_mem + generated_size;
 
-    lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
-    block = lalist_iter_prev(&block_iter);
-    while (block) {
-        struct BlockRecord record = block_records[block->block_num];
-        LAList* curr_block = record.last_block;
-        while (curr_block) {
-            size_t block_size = curr_block->len;
-            write_ptr -= block_size;
-            ojit_memcpy(write_ptr, curr_block->mem + (LALIST_BLOCK_SIZE - block_size), block_size);
+    for (int b_i = func->num_blocks - 1; b_i >= 0; b_i--) {
+        struct BlockRecord record = block_records[b_i];
+        block = record.block;
+        LAList* curr_mem_block = record.last_mem_block;
+        uint8_t* start_ptr = write_ptr;
+        while (curr_mem_block) {
+            size_t mem_block_size = curr_mem_block->len;
+            write_ptr -= mem_block_size;
+            ojit_memcpy(write_ptr, curr_mem_block->mem + (LALIST_BLOCK_SIZE - mem_block_size), mem_block_size);
 
-            curr_block = curr_block->prev;
+            curr_mem_block = curr_mem_block->prev;
         }
-        block = lalist_iter_prev(&block_iter);
+
+        int m = 0;
+        FOREACH(offset_record, record.offset_records, struct OffsetRecord) {
+            uint8_t* offset_ptr = (start_ptr - offset_record->offset_from_end);
+            struct BlockRecord target_record = block_records[offset_record->target->block_num];
+            uintptr_t offset = (func_mem + target_record.offset) - offset_ptr;
+            *(offset_ptr - 4) = (uint8_t) (offset >> 0) & 0xFF;
+            *(offset_ptr - 3) = (uint8_t) (offset >> 8) & 0xFF;
+            *(offset_ptr - 2) = (uint8_t) (offset >> 16) & 0xFF;
+            *(offset_ptr - 1) = (uint8_t) (offset >> 24) & 0xFF;
+//            printf("Wrote %llu for %i at %p\n", offset, b_i, offset_ptr);
+            m++;
+        }
     }
 
     return (struct CompiledFunction) {func_mem, generated_size};

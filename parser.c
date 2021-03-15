@@ -10,6 +10,8 @@ enum TokenType {
     TOKEN_LET,
     TOKEN_WHILE,
     TOKEN_FOR,
+    TOKEN_IF,
+    TOKEN_ELSE,
     TOKEN_AND,
     TOKEN_OR,
 
@@ -155,12 +157,14 @@ enum TokenType BASIC_TOKEN_INDICIES[28] = {
 };
 
 
-char* type_names[38] = {
+char* type_names[40] = {
         [TOKEN_DEF] = "'def'",
         [TOKEN_RETURN] = "'return'",
         [TOKEN_LET] = "'let'",
         [TOKEN_WHILE] = "'while'",
         [TOKEN_FOR] = "'for'",
+        [TOKEN_IF] = "'if'",
+        [TOKEN_ELSE] = "'else'",
         [TOKEN_AND] = "'and'",
         [TOKEN_OR] = "'or'",
         [TOKEN_IDENT] = "an identifier",
@@ -227,6 +231,10 @@ Token lexer_emit_ident(struct Lexer* lexer) {
         type = TOKEN_RETURN;
     } else if (string_equal(text, lexer->keywords[TOKEN_LET])) {
         type = TOKEN_LET;
+    } else if (string_equal(text, lexer->keywords[TOKEN_IF])) {
+        type = TOKEN_IF;
+    } else if (string_equal(text, lexer->keywords[TOKEN_ELSE])) {
+        type = TOKEN_ELSE;
     } else {
         type = TOKEN_IDENT;
     }
@@ -328,6 +336,8 @@ struct Lexer* create_lexer(struct StringTable* table_ptr, String source, MemCtx*
     lexer->keywords[TOKEN_DEF] = string_table_add(lexer->table_ptr, "def", 3);
     lexer->keywords[TOKEN_RETURN] = string_table_add(lexer->table_ptr, "return", 6);
     lexer->keywords[TOKEN_LET] = string_table_add(lexer->table_ptr, "let", 3);
+    lexer->keywords[TOKEN_IF] = string_table_add(lexer->table_ptr, "if", 2);
+    lexer->keywords[TOKEN_ELSE] = string_table_add(lexer->table_ptr, "else", 4);
 
     lexer->source = source;
     lexer->start = source->start_ptr;
@@ -386,7 +396,14 @@ String get_lvalue(ExpressionValue value) {
         return value.lvalue;
     } else {
         ojit_new_error();
-        ojit_build_error_chars("Attempted to access the lvalue of something which doesn't have one");
+        switch (value.rvalue->base.id) {
+            case ID_GLOBAL_IR:
+                ojit_build_error_chars("Cannot assign to global values");
+                break;
+            default:
+                ojit_build_error_chars("Attempted to access the lvalue of something which doesn't have one");
+                break;
+        }
         ojit_error();
         exit(0);
     }
@@ -506,7 +523,7 @@ ExpressionValue parse_assign(Parser* parser) {
     ExpressionValue expr = parse_addition(parser, true);
     if (parser_peek_is(parser, TOKEN_EQUAL)) {
         parser_expect(parser, TOKEN_EQUAL);
-        String var = LVALUE(expr);
+        String var = LVALUE(expr);  // TODO add check here so it doesn't just fail
         IRValue right = RVALUE(parse_assign(parser));
         builder_set_variable(parser->builder, var, right);
         return WRAP_RVALUE(right);
@@ -518,6 +535,35 @@ ExpressionValue parse_assign(Parser* parser) {
 
 IRValue parse_expression(Parser* parser) {
     return RVALUE(parse_assign(parser));
+}
+
+void parse_statement(Parser* parser);
+
+void parse_if(Parser* parser) {
+    parser_expect(parser, TOKEN_IF);
+    parser_expect(parser, TOKEN_LEFT_PAREN);
+    IRValue cond = parse_expression(parser);
+    parser_expect(parser, TOKEN_RIGHT_PAREN);
+
+    struct BlockIR* then_block = builder_add_block(parser->builder);
+    struct BlockIR* else_block = builder_add_block(parser->builder);
+    struct BlockIR* after_block = builder_add_block(parser->builder);
+    builder_CBranch(parser->builder, cond, then_block, else_block);
+
+    builder_enter_block(parser->builder, then_block);
+    parse_statement(parser);
+    if (parser->builder->current_block->terminator.ir_base.id == ID_TERM_NONE) {
+        builder_Branch(parser->builder, after_block);
+    }
+
+    parser_expect(parser, TOKEN_ELSE);
+    builder_enter_block(parser->builder, else_block);
+    parse_statement(parser);
+    if (parser->builder->current_block->terminator.ir_base.id == ID_TERM_NONE) {
+        builder_Branch(parser->builder, after_block);
+    }
+
+    builder_enter_block(parser->builder, after_block);
 }
 
 
@@ -544,6 +590,7 @@ void parse_statement(Parser* parser) {
     switch (curr.type) {
         case TOKEN_RETURN: parse_return(parser); break;
         case TOKEN_LET: parse_let(parser); break;
+        case TOKEN_IF: parse_if(parser); break;
         default: parse_expression(parser); parser_expect(parser, TOKEN_SEMICOLON); break;
     }
 }
@@ -559,7 +606,7 @@ void parse_function(Parser* parser) {
     parser_expect(parser, TOKEN_LEFT_PAREN);
     while (!parser_peek_is(parser, TOKEN_RIGHT_PAREN)) {
         Token param_name = parser_expect(parser, TOKEN_IDENT);
-        IRValue param = builder_add_parameter(builder);
+        IRValue param = builder_add_parameter(builder, param_name.text);
         builder_add_variable(builder, param_name.text, param);
         if (parser_peek_is(parser, TOKEN_COMMA)) {
             parser_expect(parser, TOKEN_COMMA);

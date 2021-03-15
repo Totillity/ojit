@@ -14,11 +14,11 @@ typedef struct {
 IRBuilder* create_builder(struct FunctionIR* function_ir, MemCtx* ir_mem);
 struct BlockIR* builder_add_block(IRBuilder* builder);
 
-void builder_goto_block(IRBuilder* builder, struct BlockIR* block_ir);
+void builder_enter_block(IRBuilder* builder, struct BlockIR* block_ir);
 // endregion
 
 // region Block Builders
-IRValue builder_add_parameter(IRBuilder* builder);
+IRValue builder_add_parameter(IRBuilder* builder, String var_name);
 
 IRValue builder_add_variable(IRBuilder* builder, String var_name, IRValue init_value);
 IRValue builder_set_variable(IRBuilder* builder, String var_name, IRValue value);
@@ -32,12 +32,10 @@ IRValue builder_Call(IRBuilder* builder, IRValue callee);
 void builder_Call_argument(IRValue call_instr, IRValue argument);
 
 void builder_Return(IRBuilder* builder, IRValue value);
-void builder_Branch(IRBuilder* builder, struct BlockIR* target, size_t arg_count, IRValue* arguments);
+void builder_Branch(IRBuilder* builder, struct BlockIR* target);
+void builder_CBranch(IRBuilder* builder, IRValue cond, struct BlockIR* true_target, struct BlockIR* false_target);
 // endregion
 
-void init_block(struct BlockIR* block, size_t block_num, MemCtx* ctx);
-
 struct FunctionIR* create_function(String name, MemCtx* ctx);
-struct BlockIR* function_add_block(struct FunctionIR* func, MemCtx* ctx);
 
 #endif //OJIT_ASM_IR_BUILDERS_H

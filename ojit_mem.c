@@ -69,6 +69,7 @@ void* ojit_alloc(MemCtx* ctx, size_t size) {
 
 LAList* lalist_grow(MemCtx* mem, LAList* prev, LAList* next) {
     LAList* node = ojit_alloc(mem, sizeof(LAList));
+    node->ctx = mem;
     if (prev) prev->next = node;
     if (next) next->prev = node;
     node->prev = prev;
@@ -77,14 +78,29 @@ LAList* lalist_grow(MemCtx* mem, LAList* prev, LAList* next) {
     return node;
 }
 
-void* lalist_add(LAList* lalist, size_t item_size) {
+bool lalist_can_add(LAList* lalist, size_t item_size) {
+    return lalist->len + item_size > LALIST_BLOCK_SIZE;
+}
+
+
+void* lalist_grow_add(LAList** lalist_ptr, size_t item_size) {
+    LAList* lalist = *lalist_ptr;
     if (lalist->len + item_size > LALIST_BLOCK_SIZE) {
-        return NULL;
+        *lalist_ptr = lalist_grow(lalist->ctx, lalist, NULL);
     }
     void* item_ptr = lalist->mem + lalist->len;
     lalist->len += item_size;
     return item_ptr;
 }
+
+//void* lalist_add(LAList* lalist, size_t item_size) {
+//    if (lalist->len + item_size > LALIST_BLOCK_SIZE) {
+//        return NULL;
+//    }
+//    void* item_ptr = lalist->mem + lalist->len;
+//    lalist->len += item_size;
+//    return item_ptr;
+//}
 
 void* lalist_get_last(LAList* lalist) {
     return &lalist->mem[lalist->len];
@@ -105,25 +121,25 @@ void lalist_iter_position(LAListIter* iter, size_t index) {
 }
 
 void* lalist_iter_next(LAListIter* iter) {
-    if (iter->curr_list == NULL) return NULL;
-    void* item = &iter->curr_list->mem[iter->curr_index];
-    iter->curr_index += iter->item_size;
-    if (iter->curr_index >= LALIST_BLOCK_SIZE) {
+    if (iter->curr_index >= (LALIST_BLOCK_SIZE - iter->item_size) || (iter->curr_index + iter->item_size) > iter->curr_list->len) {
         iter->curr_list = iter->curr_list->next;
         iter->curr_index = 0;
     }
+    if (iter->curr_list == NULL) return NULL;
+    void* item = &iter->curr_list->mem[iter->curr_index];
+    iter->curr_index += iter->item_size;
     return item;
 }
 
 void* lalist_iter_prev(LAListIter* iter) {
-    if (iter->curr_list == NULL) return NULL;
-    void* item = &iter->curr_list->mem[iter->curr_index];
     if (iter->curr_index < iter->item_size) {
         iter->curr_list = iter->curr_list->prev;
         if (iter->curr_list) iter->curr_index = iter->curr_list->len - iter->item_size;
     } else {
         iter->curr_index -= iter->item_size;
     }
+    if (iter->curr_list == NULL) return NULL;
+    void* item = &iter->curr_list->mem[iter->curr_index];
     return item;
 }
 

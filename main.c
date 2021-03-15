@@ -6,7 +6,7 @@
 typedef int (*FuncType)(int);
 
 double time_function(JIT* jit, JITFunc func, int arg) {
-    int iterations = 100000;
+    int iterations = 1000000000;
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
     for (int i = 0; i < iterations; i++) {
@@ -23,7 +23,8 @@ int main() {
     JITFunc main_func = jit_get_function(jit, "main", 4);
     jit_dump_function(jit, main_func, stdout);
     int res = jit_call_function(jit, main_func, FuncType, 3);
-    double t = time_function(jit, main_func, 3);
-    printf("Value: %i, Time: %f\n", res, t);
+//    double t = time_function(jit, main_func, 3);
+//    printf("Value: %i, Time: %f\n", res, t);
+    printf("Value: %i\n", res);
     return 0;
 }

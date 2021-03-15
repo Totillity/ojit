@@ -7,6 +7,11 @@
 #include "ojit_string.h"
 #include "hash_table.h"
 
+#define FOREACH_INSTR(iter_var, iter_over) LAListIter iter_##iter_var; \
+                                           lalist_init_iter(&iter_##iter_var, (iter_over), sizeof(Instruction)); \
+                                           Instruction* iter_var; \
+                                           while (((iter_var) = lalist_iter_next(&iter_##iter_var)) != NULL)
+
 // region Registers
 // Idea: add Spilled-reg to mark values which were spilled onto the stack
 enum Register64 {
@@ -33,35 +38,9 @@ enum Register64 {
 
     R14 = 0b1110,
     R15 = 0b1111,
-
-    // PARAM_regs serve to help us mark registers
-    // We can convert by adding and subtracting 16 (0x10000)
-    PARAM_RAX = 0b10000,
-    PARAM_RCX = 0b10001,
-    PARAM_RDX = 0b10010,
-    PARAM_RBX = 0b10011,
-
-    PARAM_NO_REG = 0b10100,
-    PARAM_SPILLED_REG = 0b10101,
-
-    PARAM_RSI = 0b10110,
-    PARAM_RDI = 0b10111,
-    PARAM_R8  = 0b11000,
-    PARAM_R9  = 0b11001,
-    PARAM_R10 = 0b11010,
-    PARAM_R11 = 0b11011,
-
-    PARAM_TMP_1_REG = 0b11100,
-    PARAM_TMP_2_REG = 0b11101,
-
-    PARAM_R14 = 0b11110,
-    PARAM_R15 = 0b11111,
 };
 typedef enum Register64 Register64;
 
-#define NORMALIZE_REG(reg) ((reg) & 0b1111)
-#define IS_PARAM_REG(reg) (((reg) & 0b10000) != 0)
-#define AS_PARAM_REG(reg) ((reg) | 0b10000)
 #define IS_ASSIGNED(reg) (((reg) & 0b1111) != NO_REG)
 // endregion
 
@@ -77,7 +56,7 @@ typedef Instruction* IRValue;
 
 enum InstructionID {
     ID_INSTR_NONE = 0,
-    ID_PARAMETER_IR,
+    ID_BLOCK_PARAMETER_IR,
     ID_INT_IR,
     ID_ADD_IR,
     ID_SUB_IR,
@@ -92,6 +71,8 @@ struct InstructionBase {
 
 struct ParameterIR {
     struct InstructionBase base;
+    enum Register64 entry_reg;
+    String var_name;
 };
 
 struct IntIR {
@@ -138,6 +119,7 @@ enum TerminatorID {
     ID_TERM_NONE = 0,
     ID_RETURN_IR,
     ID_BRANCH_IR,
+    ID_CBRANCH_IR,
 };
 
 struct TerminatorBase {
@@ -152,14 +134,20 @@ struct ReturnIR {
 struct BranchIR {
     struct TerminatorBase base;
     struct BlockIR* target;
-    IRValue* arguments;
-    size_t argument_count;
+};
+
+struct CBranchIR {
+    struct TerminatorBase base;
+    IRValue cond;
+    struct BlockIR* true_target;
+    struct BlockIR* false_target;
 };
 
 union TerminatorIR {
     struct TerminatorBase ir_base;
     struct ReturnIR ir_return;
     struct BranchIR ir_branch;
+    struct CBranchIR ir_cbranch;
 };
 // endregion
 
@@ -168,8 +156,12 @@ struct BlockIR {
     LAList* first_instrs;
     LAList* last_instrs;
     size_t num_instrs;
+
     union TerminatorIR terminator;
+
+    bool has_vars;
     struct HashTable variables;
+
     size_t block_num;
 };
 // endregion
