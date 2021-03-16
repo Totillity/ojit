@@ -14,8 +14,9 @@ IRBuilder* create_builder(struct FunctionIR* function_ir, MemCtx* ctx) {
 }
 
 Instruction* builder_add_instr(IRBuilder* builder) {
-    builder->current_block->num_instrs++;
-    return lalist_grow_add(&builder->current_block->last_instrs, sizeof(Instruction));
+    Instruction* instr = lalist_grow_add(&builder->current_block->last_instrs, sizeof(Instruction));
+    instr->base.index = builder->current_block->num_instrs++;
+    return instr;
 }
 
 

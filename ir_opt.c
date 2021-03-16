@@ -62,32 +62,124 @@ void optimize_add_ir(Instruction* instr) {
     }
 }
 
-void ojit_optimize_block(struct BlockIR* block, struct OptState* state) {
+void ojit_peephole_optimizer(struct BlockIR* block, struct OptState* state) {
     (void) state;
-    LAListIter instr_iter;
-    lalist_init_iter(&instr_iter, block->first_instrs, sizeof(Instruction));
-    Instruction* instr = lalist_iter_next(&instr_iter);
-    while (instr) {
+    FOREACH_INSTR(instr, block->first_instrs) {
         switch (TYPE_OF(instr)) {
             case ID_ADD_IR: optimize_add_ir(instr); break;
             default: break;
         }
-        instr = lalist_iter_next(&instr_iter);
+    }
+}
+
+void ojit_optimize_block(struct BlockIR* block, struct OptState* state) {
+    ojit_peephole_optimizer(block, state);
+}
+
+void ojit_optimize_params(struct FunctionIR* func) {
+    FOREACH_REV(block, func->last_blocks, struct BlockIR) {
+        bool was_used[block->num_instrs]; ojit_memset(was_used, false, block->num_instrs);
+#define INDEX(instr_ptr) ((instr_ptr)->base.index)
+
+        union TerminatorIR term = block->terminator;
+        switch (term.ir_base.id) {
+            case ID_RETURN_IR: {
+                was_used[INDEX(term.ir_return.value)] = true;
+                break;
+            }
+            case ID_BRANCH_IR: {
+                FOREACH_INSTR(param, term.ir_branch.target->first_instrs) {
+                    if (param->base.id == ID_BLOCK_PARAMETER_IR) {
+                        String var_name = param->ir_parameter.var_name;
+                        if (var_name) {
+                            Instruction* instr_ptr; hash_table_get(&block->variables, STRING_KEY(var_name), (uint64_t*) &instr_ptr);
+                            was_used[INDEX(instr_ptr)] = true;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                break;
+            }
+            case ID_CBRANCH_IR: {
+                FOREACH_INSTR(param, term.ir_cbranch.true_target->first_instrs) {
+                    if (param->base.id == ID_BLOCK_PARAMETER_IR) {
+                        String var_name = param->ir_parameter.var_name;
+                        if (var_name) {
+                            Instruction* instr_ptr; hash_table_get(&block->variables, STRING_KEY(var_name), (uint64_t*) &instr_ptr);
+                            was_used[INDEX(instr_ptr)] = true;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                FOREACH_INSTR(param1, term.ir_cbranch.false_target->first_instrs) {
+                    if (param1->base.id == ID_BLOCK_PARAMETER_IR) {
+                        String var_name = param1->ir_parameter.var_name;
+                        if (var_name) {
+                            Instruction* instr_ptr; hash_table_get(&block->variables, STRING_KEY(var_name), (uint64_t*) &instr_ptr);
+                            was_used[INDEX(instr_ptr)] = true;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                break;
+            }
+            default: {
+                exit(-1);
+            }
+        }
+
+        FOREACH_REV(instr, block->last_instrs, Instruction) {
+            switch (instr->base.id) {
+                case ID_BLOCK_PARAMETER_IR: {
+                    if (!was_used[INDEX(instr)]) {
+                        instr->ir_parameter.var_name = NULL;
+                    }
+                    break;
+                }
+                case ID_INT_IR: {
+                    break;
+                }
+                case ID_GLOBAL_IR: {
+                    break;
+                }
+                case ID_ADD_IR: {
+                    if (was_used[INDEX(instr)]) {
+                        was_used[INDEX(instr->ir_add.a)] = true;
+                        was_used[INDEX(instr->ir_add.b)] = true;
+                    }
+                    break;
+                }
+                case ID_SUB_IR: {
+                    if (was_used[INDEX(instr)]) {
+                        was_used[INDEX(instr->ir_sub.a)] = true;
+                        was_used[INDEX(instr->ir_sub.b)] = true;
+                    }
+                    break;
+                }
+                case ID_CALL_IR: {
+                    FOREACH(arg, instr->ir_call.arguments, IRValue) {
+                        was_used[INDEX(*arg)] = true;
+                    }
+                    break;
+                }
+                case ID_INSTR_NONE: {
+                    exit(-1);
+                }
+            }
+        }
+#undef INDEX
     }
 }
 
 void ojit_optimize_func(struct FunctionIR* func, struct GetFunctionCallback callbacks) {
-#ifdef OJIT_OPTIMIZATIONS
     struct OptState state = {.callbacks = callbacks};
 
-    LAListIter block_iter;
-    lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
-    struct BlockIR* block = lalist_iter_next(&block_iter);
-    while (block) {
+    FOREACH(block, func->first_blocks, struct BlockIR) {
         ojit_optimize_block(block, &state);
-        block = lalist_iter_next(&block_iter);
     }
-#else
-    return;
-#endif
+
+    ojit_optimize_params(func);
 }

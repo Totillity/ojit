@@ -66,6 +66,7 @@ enum InstructionID {
 
 struct InstructionBase {
     Register64 reg;
+    uint32_t index;
     enum InstructionID id;
 #ifdef OJIT_READABLE_IR
     bool is_disabled;

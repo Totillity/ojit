@@ -35,7 +35,6 @@ LAList* lalist_grow(MemCtx* mem, LAList* prev, LAList* next);
 LAList* lalist_new(MemCtx* mem);
 bool lalist_can_add(LAList* lalist, size_t item_size);
 void* lalist_grow_add(LAList** lalist_ptr, size_t item_size);
-//void* lalist_add(LAList* lalist, size_t item_size);
 void* lalist_get(LAList* lalist, size_t item_size, size_t index);
 void* lalist_get_last(LAList* lalist);
 

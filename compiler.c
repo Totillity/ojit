@@ -98,7 +98,7 @@ void __attribute__((always_inline)) unmark_register(Register64 reg, struct Assem
 }
 
 void __attribute__((always_inline)) instr_assign_reg(Instruction* instr, Register64 reg) {
-    assert(!IS_ASSIGNED(GET_REG(instr)));
+    OJIT_ASSERT(!IS_ASSIGNED(GET_REG(instr)), "Attempted to assign a register which is already in use");
     SET_REG(instr, reg);
 }
 
@@ -108,7 +108,6 @@ Register64 get_unused(const bool* registers) {
     }
     return NO_REG;
 }
-
 
 Register64 instr_fetch_reg(IRValue instr, Register64 suggested, struct AssemblerState* state) {
     Register64 reg = GET_REG(instr);
@@ -190,6 +189,14 @@ void __attribute__((always_inline)) asm_emit_mov_r64_r64(Register64 dest, Regist
 
 void __attribute__((always_inline)) asm_emit_mov_r64_i64(Register64 dest, uint64_t constant, struct AssemblerState* state) {
 #ifdef OJIT_OPTIMIZATIONS
+//    if (constant <= UINT8_MAX) {
+//        asm_emit_int8(constant, state);
+//        asm_emit_byte(0xB0 + (dest & 0b0111), state);
+//        if (dest & 0b1000) {
+//            asm_emit_byte(REX(0b0, 0b0, 0b0, dest >> 3 & 0b0001), state);
+//        }
+//        return;
+//    }
     if (constant <= UINT32_MAX) {
         asm_emit_int32(constant, state);
         asm_emit_byte(0xB8 + (dest & 0b0111), state);
@@ -235,37 +242,51 @@ void __attribute__((always_inline)) asm_emit_add_r64_r64(Register64 dest, Regist
 void __attribute__((always_inline)) asm_emit_add_r64_i32(Register64 source, uint32_t constant, struct AssemblerState* state) {
 #ifdef OJIT_OPTIMIZATIONS
     if (constant <= UINT8_MAX) {
-        if (source == RAX) {
-            asm_emit_int8(constant, state);
-            asm_emit_byte(0x04, state);
-        } else {
-            asm_emit_int8(constant, state);
-            asm_emit_byte(MODRM(0b11, 0, source & 0b0111), state);
-            asm_emit_byte(0x80, state);
-            if (source & 0b1000) {
-                asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), state);
-            }
-        }
+        asm_emit_int8(constant, state);
+        asm_emit_byte(MODRM(0b11, 0, source & 0b0111), state);
+        asm_emit_byte(0x83, state);
+        asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), state);
         return;
     }
     if (source == RAX) {
         asm_emit_int32(constant, state);
         asm_emit_byte(0x05, state);
+        asm_emit_byte(REX(0b1, 0b0, 0b0, 0b0), state);
         return;
     }
 #endif
     asm_emit_int32(constant, state);
     asm_emit_byte(MODRM(0b11, 0, source & 0b0111), state);
     asm_emit_byte(0x81, state);
-    if (source & 0b1000) {
-        asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), state);
-    }
+    asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), state);
 }
 
 void __attribute__((always_inline)) asm_emit_sub_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
     asm_emit_byte(MODRM(0b11, source & 0b111, dest & 0b0111), state);
     asm_emit_byte(0x29, state);
     asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
+}
+
+void __attribute__((always_inline)) asm_emit_sub_r64_i32(Register64 source, uint32_t constant, struct AssemblerState* state) {
+#ifdef OJIT_OPTIMIZATIONS
+    if (constant <= UINT8_MAX) {
+        asm_emit_int8(constant, state);
+        asm_emit_byte(MODRM(0b11, 5, source & 0b0111), state);
+        asm_emit_byte(0x83, state);
+        asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), state);
+        return;
+    }
+    if (source == RAX) {
+        asm_emit_int32(constant, state);
+        asm_emit_byte(0x2D, state);
+        asm_emit_byte(REX(0b1, 0b0, 0b0, 0b0), state);
+        return;
+    }
+#endif
+    asm_emit_int32(constant, state);
+    asm_emit_byte(MODRM(0b11, 5, source & 0b0111), state);
+    asm_emit_byte(0x81, state);
+    asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), state);
 }
 
 void __attribute__((always_inline)) asm_emit_jmp(struct BlockIR* target, struct AssemblerState* state) {
@@ -288,6 +309,7 @@ enum JumpCondition {
 };
 
 void __attribute__((always_inline)) asm_emit_jcc(enum JumpCondition cond, struct BlockIR* target, struct AssemblerState* state) {
+    // TODO: If I subtract 0x10 from the cond-code, I can make the offsets 1 byte
 #ifdef OJIT_OPTIMIZATIONS
     if (target->block_num - state->block_num == 1) return;
 #endif
@@ -299,6 +321,10 @@ void __attribute__((always_inline)) asm_emit_jcc(enum JumpCondition cond, struct
     asm_emit_byte(cond, state);
     asm_emit_byte(0x0F, state);
 }
+// endregion
+
+// region Utility
+#define TYPE_OF(val) ((val)->base.id)
 // endregion
 
 // region Emit
@@ -336,39 +362,42 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
     FOREACH_INSTR(instr, target->first_instrs) {
         if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
             struct ParameterIR* param = &instr->ir_parameter;
-            IRValue argument; hash_table_get(&state->block->variables, STRING_KEY(param->var_name), (uint64_t*) &argument);
+            if (param->var_name) {
+                IRValue argument;
+                hash_table_get(&state->block->variables, STRING_KEY(param->var_name), (uint64_t*) &argument);
 
-            Register64 param_reg = param->entry_reg;
-            Register64 argument_reg = GET_REG(argument);
+                Register64 param_reg = param->entry_reg;
+                Register64 argument_reg = GET_REG(argument);
 
-            if (!IS_ASSIGNED(param_reg)) {
-                if (target_registers[argument_reg]) {
-                    for (Register64 reg = 0; reg < 16; reg++) {
-                        if (!target_registers[reg] && !state->used_registers[reg]) {
-                            param_reg = reg;
-                            break;
+                if (!IS_ASSIGNED(param_reg)) {
+                    if (target_registers[argument_reg]) {
+                        for (Register64 reg = 0; reg < 16; reg++) {
+                            if (!target_registers[reg] && !state->used_registers[reg]) {
+                                param_reg = reg;
+                                break;
+                            }
                         }
+                        if (param_reg == NO_REG) {
+                            printf("Too many registers used concurrently");
+                            exit(-1);  // TODO register spilling
+                        }
+                    } else {
+                        param_reg = argument_reg;
                     }
-                    if (param_reg == NO_REG) {
-                        printf("Too many registers used concurrently");
-                        exit(-1);  // TODO register spilling
-                    }
+                    target_registers[param_reg] = true;
+                    param->entry_reg = param_reg;
                 } else {
-                    param_reg = argument_reg;
+                    if (REG_IS_MARKED(param_reg)) {
+                        printf("something here also used the register the argument needs to go into\n");
+                        exit(-1);  // TODO oh god not again
+                    }
                 }
-                target_registers[param_reg] = true;
-                param->entry_reg = param_reg;
-            } else {
-                if (REG_IS_MARKED(param_reg)) {
-                    printf("something here also used the register the argument needs to go into\n");
-                    exit(-1);  // TODO oh god not again
+                if (!IS_ASSIGNED(argument_reg)) {
+                    argument_reg = instr_fetch_reg(argument, param_reg, state);
+                    mark_register(argument_reg, state);
                 }
+                asm_emit_mov_r64_r64(param_reg, argument_reg, state);
             }
-            if (!IS_ASSIGNED(argument_reg)) {
-                argument_reg = instr_fetch_reg(argument, param_reg, state);
-                mark_register(argument_reg, state);
-            }
-            asm_emit_mov_r64_r64(param_reg, argument_reg, state);
         } else {
             break;
         }
@@ -420,42 +449,19 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
     unmark_register(this_reg, state);
 
 #ifdef OJIT_OPTIMIZATIONS
-    if (instr->a->base.id == ID_INT_IR) {
-        if (!b_assigned) {
-            b_register = get_unused(state->used_registers);
-            if (b_register == NO_REG) {
-                printf("Too many registers used concurrently");
-                exit(-1); // TODO spill
-            }
-            instr_assign_reg(instr->b, b_register);
-            mark_register(b_register, state);
-        }
-        if (b_register == RAX) {  // try to add into RAX since that has a shorter instruction
-            asm_emit_mov_r64_r64(this_reg, b_register, state);
-            asm_emit_add_r64_i32(b_register, instr->a->ir_int.constant, state);
+    if (TYPE_OF(instr->a) == ID_INT_IR || TYPE_OF(instr->b) == ID_INT_IR) {
+        Register64 add_to;
+        uint32_t constant;
+        if (TYPE_OF(instr->a) == ID_INT_IR) {
+            add_to = instr_fetch_reg(instr->b, this_reg, state);
+            constant = instr->a->ir_int.constant;
         } else {
-            asm_emit_add_r64_i32(this_reg, instr->a->ir_int.constant, state);
-            asm_emit_mov_r64_r64(this_reg, b_register, state);
+            add_to = instr_fetch_reg(instr->a, this_reg, state);
+            constant = instr->b->ir_int.constant;
         }
-        return;
-    }
-    if (instr->b->base.id == ID_INT_IR) {
-        if (!a_assigned) {
-            a_register = get_unused(state->used_registers);
-            if (a_register == NO_REG) {
-                printf("Too many registers used concurrently");
-                exit(-1); // TODO spill
-            }
-            instr_assign_reg(instr->a, a_register);
-            mark_register(a_register, state);
-        }
-        if (a_register == RAX) {
-            asm_emit_mov_r64_r64(this_reg, a_register, state);
-            asm_emit_add_r64_i32(a_register, instr->b->ir_int.constant, state);
-        } else {
-            asm_emit_add_r64_i32(this_reg, instr->b->ir_int.constant, state);
-            asm_emit_mov_r64_r64(this_reg, a_register, state);
-        }
+        mark_register(add_to, state);
+        asm_emit_add_r64_i32(add_to, constant, state);
+        asm_emit_mov_r64_r64(this_reg, add_to, state);
         return;
     }
 #endif
@@ -518,6 +524,24 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
     Register64 b_register = GET_REG(instr->b);
     bool a_assigned = IS_ASSIGNED(a_register);
     bool b_assigned = IS_ASSIGNED(b_register);
+
+#ifdef OJIT_OPTIMIZATIONS
+    if (TYPE_OF(instr->a) == ID_INT_IR || TYPE_OF(instr->b) == ID_INT_IR) {
+        Register64 sub_from;
+        uint32_t constant;
+        if (TYPE_OF(instr->a) == ID_INT_IR) {
+            sub_from = instr_fetch_reg(instr->b, this_reg, state);
+            constant = instr->a->ir_int.constant;
+        } else {
+            sub_from = instr_fetch_reg(instr->a, this_reg, state);
+            constant = instr->b->ir_int.constant;
+        }
+        mark_register(sub_from, state);
+        asm_emit_sub_r64_i32(sub_from, constant, state);
+        asm_emit_mov_r64_r64(this_reg, sub_from, state);
+        return;
+    }
+#endif
 
     if (a_assigned && b_assigned) {
         // we need to copy a into primary_reg, then add b into it
@@ -748,13 +772,18 @@ void dump_function(struct FunctionIR* func) {
                     break;
                 }
                 case ID_BLOCK_PARAMETER_IR: {
-                    printf("$%i = PARAMETER \"", i);
-                    int c_ = 0;
-                    while (c_ < instr->ir_parameter.var_name->length) {
-                        putchar(instr->ir_parameter.var_name->start_ptr[c_]);
-                        c_ += 1;
+                    if (instr->ir_parameter.var_name) {
+                        printf("$%i = PARAMETER \"", i);
+
+                        int c_ = 0;
+                        while (c_ < instr->ir_parameter.var_name->length) {
+                            putchar(instr->ir_parameter.var_name->start_ptr[c_]);
+                            c_ += 1;
+                        }
+                        printf("\"\n");
+                    } else {
+                        printf("$%i = PARAMETER (DISABLED)\n", i);
                     }
-                    printf("\"\n");
                     break;
                 }
                 case ID_ADD_IR: {
@@ -824,7 +853,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 #ifdef OJIT_OPTIMIZATIONS
     ojit_optimize_func(func, callback);
 #endif
-    dump_function(func);
+//    dump_function(func);
 
     struct AssemblerState state;
     state.ctx = compiler_mem;

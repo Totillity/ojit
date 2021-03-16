@@ -22,9 +22,11 @@ int main() {
     jit_add_file(jit, "test.txt");
     JITFunc main_func = jit_get_function(jit, "main", 4);
     jit_dump_function(jit, main_func, stdout);
-    int res = jit_call_function(jit, main_func, FuncType, 3);
+
+    int res = jit_call_function(jit, main_func, FuncType, 0);
+
 //    double t = time_function(jit, main_func, 3);
-//    printf("Value: %i, Time: %f\n", res, t);
+//    printf("Value: %i, Time: %f ns\n", res, time_in_nsec);
     printf("Value: %i\n", res);
     return 0;
 }

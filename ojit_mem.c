@@ -86,11 +86,10 @@ bool lalist_can_add(LAList* lalist, size_t item_size) {
     return lalist->len + item_size > LALIST_BLOCK_SIZE;
 }
 
-
 void* lalist_grow_add(LAList** lalist_ptr, size_t item_size) {
     LAList* lalist = *lalist_ptr;
     if (lalist->len + item_size > LALIST_BLOCK_SIZE) {
-        *lalist_ptr = lalist_grow(lalist->ctx, lalist, NULL);
+        lalist = *lalist_ptr = lalist_grow(lalist->ctx, lalist, NULL);
     }
     void* item_ptr = lalist->mem + lalist->len;
     lalist->len += item_size;
