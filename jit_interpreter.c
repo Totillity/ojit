@@ -28,19 +28,19 @@ void jit_add_file(JIT* jit, char* file_name) {
 JITFunc jit_get_function(JIT* jit, char* func_name, size_t name_len) {
     String func_name_str = string_table_add(&jit->strings, func_name, name_len);
     uint64_t func_ir_ptr;
-    hash_table_get(&jit->function_records, func_name_str, &func_ir_ptr);
+    hash_table_get(&jit->function_records, STRING_KEY(func_name_str), &func_ir_ptr);
     return (void*) func_ir_ptr;
 }
 
 void* jit_compiled_callback(JIT* jit, String str) {
     struct FunctionIR* func_ir_ptr;
-    hash_table_get(&jit->function_records, str, (uint64_t*) &func_ir_ptr);
+    hash_table_get(&jit->function_records, STRING_KEY(str), (uint64_t*) &func_ir_ptr);
     return jit_get_compiled_function(jit, func_ir_ptr, NULL);
 }
 
 void* jit_ir_callback(JIT* jit, String str) {
     struct FunctionIR* func_ir_ptr;
-    hash_table_get(&jit->function_records, str, (uint64_t*) &func_ir_ptr);
+    hash_table_get(&jit->function_records, STRING_KEY(str), (uint64_t*) &func_ir_ptr);
     return func_ir_ptr;
 }
 

@@ -3,6 +3,7 @@
 
 #include "ojit_mem.h"
 #include "hash_table.h"
+#include "ojit_string.h"
 #include <stdio.h>
 
 typedef struct s_JITState {

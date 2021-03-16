@@ -67,6 +67,9 @@ enum InstructionID {
 struct InstructionBase {
     Register64 reg;
     enum InstructionID id;
+#ifdef OJIT_READABLE_IR
+    bool is_disabled;
+#endif
 };
 
 struct ParameterIR {

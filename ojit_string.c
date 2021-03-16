@@ -3,26 +3,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "hash_table.h"
 
 // 32-bit FNV-1a
-uint32_t hash_string(char* char_p, uint32_t length) {
-    uint32_t hash = 2166136261;  // MAGIC
-
-    for (size_t i = 0; i < length; i++) {
-        hash ^= *(char_p++);
-        hash *= 16777619;        // MAGIC
-    }
-
-    return hash == 0 ? 1 : hash;
-}
-
 
 bool init_string_table(struct StringTable* table, MemCtx* mem) {
     table->first_block = lalist_grow(mem, NULL, NULL);
     table->mem = mem;
     table->null_string.start_ptr = (char*) &table->null_string;
     table->null_string.length = 0;
-    table->null_string.hash = hash_string("", 0);
+    table->null_string.hash = hash_bytes("", 0);
     return true;
 }
 
@@ -35,7 +25,7 @@ String string_table_add(struct StringTable* table, char* ptr, uint32_t length) {
     if (length == 0) {
         return &table->null_string;
     }
-    uint32_t hash = hash_string(ptr, length);
+    uint32_t hash = hash_bytes(ptr, length);
     size_t insert_index = hash % (LALIST_BLOCK_SIZE / sizeof(struct s_StringRecord));
 
     LAList* curr_block = table->first_block;

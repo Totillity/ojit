@@ -336,7 +336,7 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
     FOREACH_INSTR(instr, target->first_instrs) {
         if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
             struct ParameterIR* param = &instr->ir_parameter;
-            IRValue argument; hash_table_get(&state->block->variables, param->var_name, (uint64_t*) &argument);
+            IRValue argument; hash_table_get(&state->block->variables, STRING_KEY(param->var_name), (uint64_t*) &argument);
 
             Register64 param_reg = param->entry_reg;
             Register64 argument_reg = GET_REG(argument);
@@ -698,6 +698,18 @@ void __attribute__((always_inline)) emit_instruction(Instruction* instruction_ir
 // endregion
 
 // region Debug
+int get_var_num(IRValue var, struct HashTable* table) {
+    uint64_t ret;
+    if (hash_table_get(table, HASH_KEY(var), &ret)) {
+        return ret;
+    } else {
+        ret = table->len;
+        hash_table_insert(table, HASH_KEY(var), ret);
+        return ret;
+    }
+}
+
+
 void dump_function(struct FunctionIR* func) {
     printf("FUNCTION ");
     int c_i = 0;
@@ -707,41 +719,36 @@ void dump_function(struct FunctionIR* func) {
     }
     printf("\n");
 
+    struct HashTable var_names;
+    MemCtx* tmp_mem = create_mem_ctx();
+    init_hash_table(&var_names, tmp_mem);
+
     LAListIter block_iter;
     lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
     struct BlockIR* block = lalist_iter_next(&block_iter);
-    int i = 0;
+    int k = 0;
 
-    while (i < func->num_blocks) {
+    while (k < func->num_blocks) {
         printf("    BLOCK @%zu\n", block->block_num);
-        switch (block->terminator.ir_base.id) {
-            case ID_BRANCH_IR: {
-                printf("        BRANCH @%zu\n", block->terminator.ir_branch.target->block_num);
-                break;
-            }
-            case ID_CBRANCH_IR: {
-                printf("        CBRANCH $%p {true: @%zu, false: @%zu}\n", block->terminator.ir_cbranch.cond,
-                       block->terminator.ir_cbranch.true_target->block_num,
-                       block->terminator.ir_cbranch.false_target->block_num);
-                break;
-            }
-            case ID_RETURN_IR: {
-                printf("        RETURN $%p\n", block->terminator.ir_return.value);
-                break;
-            }
-            default: {
-                printf("        UNKNOWN\n");
-            }
-        }
 
         FOREACH_INSTR(instr, block->first_instrs) {
+            int i = get_var_num(instr, &var_names);
+#ifdef OJIT_READABLE_IR
+            if (instr->base.is_disabled) {
+                printf("        (LIKELY DISABLED) ");
+            } else {
+                printf("        ");
+            }
+#else
+            printf("        ");
+#endif
             switch (instr->base.id) {
                 case ID_INT_IR: {
-                    printf("        $%p = INT32 %d\n", instr, instr->ir_int.constant);
+                    printf("$%i = INT32 %d\n", i, instr->ir_int.constant);
                     break;
                 }
                 case ID_BLOCK_PARAMETER_IR: {
-                    printf("        $%p = PARAMETER \"", instr);
+                    printf("$%i = PARAMETER \"", i);
                     int c_ = 0;
                     while (c_ < instr->ir_parameter.var_name->length) {
                         putchar(instr->ir_parameter.var_name->start_ptr[c_]);
@@ -751,22 +758,44 @@ void dump_function(struct FunctionIR* func) {
                     break;
                 }
                 case ID_ADD_IR: {
-                    printf("        $%p = ADD $%p, $%p\n", instr, instr->ir_add.a, instr->ir_add.b);
+                    printf("$%i = ADD $%i, $%i\n", i, get_var_num(instr->ir_add.a, &var_names), get_var_num(instr->ir_add.b, &var_names));
                     break;
                 }
                 case ID_SUB_IR: {
-                    printf("        $%p = SUB $%p, $%p\n", instr, instr->ir_sub.a, instr->ir_sub.b);
+                    printf("$%i = SUB $%i, $%i\n", i, get_var_num(instr->ir_sub.a, &var_names), get_var_num(instr->ir_sub.b, &var_names));
                     break;
                 }
                 default: {
-                    printf("        $%p = UNKNOWN\n", instr);
+                    printf("$%i = UNKNOWN\n", i);
                     break;
                 }
             }
         }
+        switch (block->terminator.ir_base.id) {
+            case ID_BRANCH_IR: {
+                printf("        BRANCH @%zu\n", block->terminator.ir_branch.target->block_num);
+                break;
+            }
+            case ID_CBRANCH_IR: {
+                printf("        CBRANCH $%i (true: @%zu, false: @%zu)\n",
+                       get_var_num(block->terminator.ir_cbranch.cond, &var_names),
+                       block->terminator.ir_cbranch.true_target->block_num,
+                       block->terminator.ir_cbranch.false_target->block_num);
+                break;
+            }
+            case ID_RETURN_IR: {
+                printf("        RETURN $%i\n", get_var_num(block->terminator.ir_return.value, &var_names));
+                break;
+            }
+            default: {
+                printf("        UNKNOWN\n");
+            }
+        }
+
         block = lalist_iter_next(&block_iter);
-        i++;
+        k++;
     }
+    destroy_mem_ctx(tmp_mem);
 }
 // endregion
 
@@ -795,7 +824,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 #ifdef OJIT_OPTIMIZATIONS
     ojit_optimize_func(func, callback);
 #endif
-//    dump_function(func);
+    dump_function(func);
 
     struct AssemblerState state;
     state.ctx = compiler_mem;

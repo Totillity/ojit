@@ -429,7 +429,7 @@ ExpressionValue parse_terminal(Parser* parser, bool lvalue) {
         case TOKEN_IDENT: {
             parser_expect(parser, TOKEN_IDENT);
             IRValue value;
-            if (hash_table_get(&parser->builder->current_block->variables, curr.text, (uint64_t*) &value)) {
+            if (hash_table_get(&parser->builder->current_block->variables, STRING_KEY(curr.text), (uint64_t*) &value)) {
                 return lvalue ? WRAP_LVALUE(curr.text, value) : WRAP_RVALUE(value);
             } else {
                 return WRAP_RVALUE(builder_Global(parser->builder, curr.text));
@@ -624,7 +624,7 @@ void parse_function(Parser* parser) {
     parser_expect(parser, TOKEN_RIGHT_BRACE);
 
     parser->builder = NULL;
-    hash_table_insert(parser->func_table, func->name, (uint64_t) func);
+    hash_table_insert(parser->func_table, STRING_KEY(func->name), (uint64_t) func);
 }
 
 

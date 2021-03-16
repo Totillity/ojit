@@ -46,20 +46,23 @@ IRValue builder_add_parameter(IRBuilder* builder, String var_name) {
     instr->var_name = var_name;
     instr->entry_reg = NO_REG;
     instr->base.id = ID_BLOCK_PARAMETER_IR;
+#ifdef OJIT_READABLE_IR
+    instr->base.is_disabled = false;
+#endif
     instr->base.reg = NO_REG;
     return (IRValue) instr;
 }
 
 
 IRValue builder_add_variable(IRBuilder* builder, String var_name, IRValue init_value) {
-    bool was_set = hash_table_insert(&builder->current_block->variables, var_name, (uint64_t) init_value);
+    bool was_set = hash_table_insert(&builder->current_block->variables, STRING_KEY(var_name), (uint64_t) init_value);
     OJIT_ASSERT(was_set, "e");
     return init_value;
 }
 
 
 IRValue builder_set_variable(IRBuilder* builder, String var_name, IRValue value) {
-    bool was_set = hash_table_set(&builder->current_block->variables, var_name, (uint64_t) value);
+    bool was_set = hash_table_set(&builder->current_block->variables, STRING_KEY(var_name), (uint64_t) value);
     OJIT_ASSERT(was_set, "Variable already exists");
     return value;
 }
@@ -67,7 +70,7 @@ IRValue builder_set_variable(IRBuilder* builder, String var_name, IRValue value)
 
 IRValue builder_get_variable(IRBuilder* builder, String var_name) {
     IRValue value = NULL;
-    bool was_get = hash_table_get(&builder->current_block->variables, var_name, (uint64_t*) &value);
+    bool was_get = hash_table_get(&builder->current_block->variables, STRING_KEY(var_name), (uint64_t*) &value);
     OJIT_ASSERT(was_get, "Variable does not exist");
     return value;
 }
@@ -77,6 +80,9 @@ IRValue builder_Int(IRBuilder* builder, int32_t constant) {
     struct IntIR* instr = &builder_add_instr(builder)->ir_int;
     instr->constant = constant;
     instr->base.id = ID_INT_IR;
+#ifdef OJIT_READABLE_IR
+    instr->base.is_disabled = false;
+#endif
     instr->base.reg = NO_REG;
     return (Instruction*) instr;
 }
@@ -86,6 +92,9 @@ IRValue builder_Add(IRBuilder* builder, IRValue a, IRValue b) {
     instr->a = a;
     instr->b = b;
     instr->base.id = ID_ADD_IR;
+#ifdef OJIT_READABLE_IR
+    instr->base.is_disabled = false;
+#endif
     instr->base.reg = NO_REG;
     return (Instruction*) instr;
 }
@@ -95,6 +104,9 @@ IRValue builder_Sub(IRBuilder* builder, IRValue a, IRValue b) {
     instr->a = a;
     instr->b = b;
     instr->base.id = ID_SUB_IR;
+#ifdef OJIT_READABLE_IR
+    instr->base.is_disabled = false;
+#endif
     instr->base.reg = NO_REG;
     return (Instruction*) instr;
 }
@@ -104,6 +116,9 @@ IRValue builder_Call(IRBuilder* builder, IRValue callee) {
     instr->callee = callee;
     instr->arguments = lalist_grow(builder->ir_mem, NULL, NULL);
     instr->base.id = ID_CALL_IR;
+#ifdef OJIT_READABLE_IR
+    instr->base.is_disabled = false;
+#endif
     instr->base.reg = NO_REG;
     return (Instruction*) instr;
 }
@@ -118,6 +133,9 @@ IRValue builder_Global(IRBuilder* builder, String name) {
     struct GlobalIR* instr = &builder_add_instr(builder)->ir_global;
     instr->name = name;
     instr->base.id = ID_GLOBAL_IR;
+#ifdef OJIT_READABLE_IR
+    instr->base.is_disabled = false;
+#endif
     instr->base.reg = NO_REG;
     return (Instruction*) instr;
 }
@@ -133,7 +151,7 @@ void merge_blocks(IRBuilder* builder, struct BlockIR* to, struct BlockIR* from) 
         FOREACH_INSTR(curr_instr, to->first_instrs) {
             if (curr_instr->base.id == ID_BLOCK_PARAMETER_IR) {
                 struct ParameterIR* param = &curr_instr->ir_parameter;
-                if (!hash_table_has(&from->variables, param->var_name)) {
+                if (!hash_table_has(&from->variables, STRING_KEY(param->var_name)) ){
                     param->var_name = NULL;
                 }
             } else {
@@ -145,7 +163,7 @@ void merge_blocks(IRBuilder* builder, struct BlockIR* to, struct BlockIR* from) 
         builder_temp_swap_block(builder, to);
         TableEntry* curr_entry = from->variables.last_entry;
         while (curr_entry) {
-            builder_add_parameter(builder, curr_entry->key);
+            builder_add_parameter(builder, curr_entry->key.cmp_obj);
             curr_entry = curr_entry->prev;
         }
         builder_temp_swap_block(builder, original_block);
