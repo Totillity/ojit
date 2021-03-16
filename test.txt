@@ -1,6 +1,6 @@
 def main(a1) {
     let a2 = 0;
-    if (a1)
+    if (a1 < 3)
         a2 = a1 + 1;
     else
         a2 = a1 - 2;

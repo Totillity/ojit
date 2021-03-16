@@ -2,7 +2,7 @@ import time
 
 
 def main(a1):
-    if a1:
+    if a1 < 3:
         a2 = a1 + 1
     else:
         a2 = a1 - 2
@@ -20,7 +20,7 @@ def main(a1):
     return a12 + 13
 
 
-print(f"{main(3)}\n")
+print(f"{main(4)}\n")
 
 i = 0
 start = time.time()

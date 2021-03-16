@@ -60,6 +60,7 @@ enum InstructionID {
     ID_INT_IR,
     ID_ADD_IR,
     ID_SUB_IR,
+    ID_CMP_IR,
     ID_CALL_IR,
     ID_GLOBAL_IR,
 };
@@ -96,6 +97,22 @@ struct SubIR {
     Instruction* b;
 };
 
+enum Comparison {
+    IF_EQUAL = 0x84, IF_ZERO = 0x84,
+    IF_NOT_EQUAL = 0x85, IF_NOT_ZERO = 0x85,
+    IF_LESS = 0x8C,
+    IF_LESS_EQUAL = 0x8E,
+    IF_GREATER = 0x8F,
+    IF_GREATER_EQUAL = 0x8D,
+};
+
+struct CompareIR {
+    struct InstructionBase base;
+    enum Comparison cmp;
+    Instruction* a;
+    Instruction* b;
+};
+
 struct CallIR {
     struct InstructionBase base;
     Instruction* callee;
@@ -113,6 +130,7 @@ union u_InstructionIR {
     struct IntIR ir_int;
     struct AddIR ir_add;
     struct SubIR ir_sub;
+    struct CompareIR ir_cmp;
     struct CallIR ir_call;
     struct GlobalIR ir_global;
 };

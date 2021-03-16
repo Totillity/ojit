@@ -122,6 +122,7 @@ Register64 instr_fetch_reg(IRValue instr, Register64 suggested, struct Assembler
             reg = suggested;
         }
         instr_assign_reg(instr, reg);
+        mark_register(reg, state);
     }
     return reg;
 }
@@ -289,6 +290,43 @@ void __attribute__((always_inline)) asm_emit_sub_r64_i32(Register64 source, uint
     asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), state);
 }
 
+void __attribute__((always_inline)) asm_emit_cmp_r64_r64(Register64 a, Register64 b, struct AssemblerState* state) {
+    asm_emit_byte(MODRM(0b11, b & 0b111, a & 0b0111), state);
+    asm_emit_byte(0x39, state);
+    asm_emit_byte(REX(0b1, b >> 3 & 0b1, 0b0, a >> 3 & 0b1), state);
+}
+
+void __attribute__((always_inline)) asm_emit_cmp_r64_i32(Register64 source, uint32_t constant, struct AssemblerState* state) {
+#ifdef OJIT_OPTIMIZATIONS
+    if (constant <= UINT8_MAX) {
+        asm_emit_int8(constant, state);
+        asm_emit_byte(MODRM(0b11, 7, source & 0b0111), state);
+        asm_emit_byte(0x83, state);
+        asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), state);
+        return;
+    }
+    if (source == RAX) {
+        asm_emit_int32(constant, state);
+        asm_emit_byte(0x3D, state);
+        asm_emit_byte(REX(0b1, 0b0, 0b0, 0b0), state);
+        return;
+    }
+#endif
+    asm_emit_int32(constant, state);
+    asm_emit_byte(MODRM(0b11, 7, source & 0b0111), state);
+    asm_emit_byte(0x81, state);
+    asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), state);
+}
+
+void __attribute__((always_inline)) asm_emit_setcc(enum Comparison cond, enum Register64 reg, struct AssemblerState* state) {
+    asm_emit_byte(MODRM(0b11, 0, reg & 0b0111), state);
+    asm_emit_byte(cond + 0x10, state);
+    asm_emit_byte(0x0F, state);
+    if (reg & 0b1000) {
+        asm_emit_byte(REX(0, 1, 0, 0), state);
+    }
+}
+
 void __attribute__((always_inline)) asm_emit_jmp(struct BlockIR* target, struct AssemblerState* state) {
 #ifdef OJIT_OPTIMIZATIONS
     if (target->block_num - state->block_num == 1) return;
@@ -301,14 +339,7 @@ void __attribute__((always_inline)) asm_emit_jmp(struct BlockIR* target, struct 
     asm_emit_byte(0xE9, state);
 }
 
-enum JumpCondition {
-    JUMP_IF_EQUAL = 0x84,
-    JUMP_IF_NOT_EQUAL = 0x85,
-    JUMP_IF_ZERO = 0x84,
-    JUMP_IF_NOT_ZERO = 0x85,
-};
-
-void __attribute__((always_inline)) asm_emit_jcc(enum JumpCondition cond, struct BlockIR* target, struct AssemblerState* state) {
+void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, struct BlockIR* target, struct AssemblerState* state) {
     // TODO: If I subtract 0x10 from the cond-code, I can make the offsets 1 byte
 #ifdef OJIT_OPTIMIZATIONS
     if (target->block_num - state->block_num == 1) return;
@@ -332,7 +363,6 @@ void __attribute__((always_inline)) asm_emit_jcc(enum JumpCondition cond, struct
 void __attribute__((always_inline)) emit_return(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct ReturnIR* ret = &terminator->ir_return;
     Register64 value_reg = instr_fetch_reg(ret->value, RAX, state);
-    mark_register(value_reg, state);
     asm_emit_byte(0xC3, state);
     if (value_reg != RAX) {
         asm_emit_mov_r64_r64(RAX, value_reg, state);
@@ -394,7 +424,6 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
                 }
                 if (!IS_ASSIGNED(argument_reg)) {
                     argument_reg = instr_fetch_reg(argument, param_reg, state);
-                    mark_register(argument_reg, state);
                 }
                 asm_emit_mov_r64_r64(param_reg, argument_reg, state);
             }
@@ -415,9 +444,9 @@ void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, 
 void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct CBranchIR* cbranch = &terminator->ir_cbranch;
 
-    asm_emit_jcc(JUMP_IF_NOT_ZERO, cbranch->true_target, state);  // comeback to this later after I've stitched everything together
+    asm_emit_jcc(IF_NOT_ZERO, cbranch->true_target, state);
     resolve_branch(cbranch->true_target, state);
-    asm_emit_jcc(JUMP_IF_ZERO, cbranch->false_target, state);  // comeback to this later after I've stitched everything together
+    asm_emit_jcc(IF_ZERO, cbranch->false_target, state);
     resolve_branch(cbranch->false_target, state);
 
     Register64 value_reg = instr_fetch_reg(cbranch->cond, NO_REG, state);
@@ -459,7 +488,6 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
             add_to = instr_fetch_reg(instr->a, this_reg, state);
             constant = instr->b->ir_int.constant;
         }
-        mark_register(add_to, state);
         asm_emit_add_r64_i32(add_to, constant, state);
         asm_emit_mov_r64_r64(this_reg, add_to, state);
         return;
@@ -536,7 +564,6 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
             sub_from = instr_fetch_reg(instr->a, this_reg, state);
             constant = instr->b->ir_int.constant;
         }
-        mark_register(sub_from, state);
         asm_emit_sub_r64_i32(sub_from, constant, state);
         asm_emit_mov_r64_r64(this_reg, sub_from, state);
         return;
@@ -586,6 +613,38 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
         asm_emit_sub_r64_r64(primary_reg, secondary_reg, state);
     }
 }
+
+void __attribute__((always_inline)) emit_cmp(Instruction* instruction, struct AssemblerState* state) {
+    struct CompareIR* instr = &instruction->ir_cmp;
+
+    if (!IS_ASSIGNED(GET_REG(instr))) return;
+    Register64 this_reg = GET_REG(instr);
+    unmark_register(this_reg, state);
+
+    Register64 a_register = instr_fetch_reg(instr->a, NO_REG, state);
+    Register64 b_register = instr_fetch_reg(instr->b, NO_REG, state);
+
+//#ifdef OJIT_OPTIMIZATIONS
+//    if (TYPE_OF(instr->a) == ID_INT_IR || TYPE_OF(instr->b) == ID_INT_IR) {
+//        Register64 add_to;
+//        uint32_t constant;
+//        if (TYPE_OF(instr->a) == ID_INT_IR) {
+//            add_to = instr_fetch_reg(instr->b, this_reg, state);
+//            constant = instr->a->ir_int.constant;
+//        } else {
+//            add_to = instr_fetch_reg(instr->a, this_reg, state);
+//            constant = instr->b->ir_int.constant;
+//        }
+//        mark_register(add_to, state);
+//        asm_emit_add_r64_i32(add_to, constant, state);
+//        asm_emit_mov_r64_r64(this_reg, add_to, state);
+//        return;
+//    }
+//#endif
+    asm_emit_setcc(instr->cmp, this_reg, state);
+    asm_emit_cmp_r64_r64(a_register, b_register, state);
+}
+
 
 void __attribute__((always_inline)) emit_block_parameter(Instruction* instruction, struct AssemblerState* state) {
     struct ParameterIR* instr = &instruction->ir_parameter;
@@ -708,10 +767,11 @@ void __attribute__((always_inline)) emit_instruction(Instruction* instruction_ir
         case ID_INT_IR: emit_int(instruction_ir, state); break;
         case ID_ADD_IR: emit_add(instruction_ir, state); break;
         case ID_SUB_IR: emit_sub(instruction_ir, state); break;
+        case ID_CMP_IR: emit_cmp(instruction_ir, state); break;
         case ID_CALL_IR: emit_call(instruction_ir, state); break;
         case ID_GLOBAL_IR: emit_global(instruction_ir, state); break;
         case ID_BLOCK_PARAMETER_IR: emit_block_parameter(instruction_ir, state); break;
-        default:
+        case ID_INSTR_NONE:
             ojit_new_error();
             ojit_build_error_chars("Broken or Unimplemented instruction: ");
             ojit_build_error_int(instruction_ir->base.id);
@@ -794,7 +854,19 @@ void dump_function(struct FunctionIR* func) {
                     printf("$%i = SUB $%i, $%i\n", i, get_var_num(instr->ir_sub.a, &var_names), get_var_num(instr->ir_sub.b, &var_names));
                     break;
                 }
-                default: {
+                case ID_CMP_IR: {
+                    printf("$%i = CMP (%i) $%i, $%i\n", i, instr->ir_cmp.cmp, get_var_num(instr->ir_cmp.a, &var_names), get_var_num(instr->ir_cmp.b, &var_names));
+                    break;
+                }
+                case ID_CALL_IR: {
+                    printf("$%i = CALL\n", i);
+                    break;
+                }
+                case ID_GLOBAL_IR: {
+                    printf("$%i = GLOBAL\n", i);
+                    break;
+                }
+                case ID_INSTR_NONE: {
                     printf("$%i = UNKNOWN\n", i);
                     break;
                 }

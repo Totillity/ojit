@@ -27,6 +27,7 @@ IRValue builder_get_variable(IRBuilder* builder, String var_name);
 IRValue builder_Int(IRBuilder* builder, int32_t constant);
 IRValue builder_Add(IRBuilder* builder, IRValue a, IRValue b);
 IRValue builder_Sub(IRBuilder* builder, IRValue a, IRValue b);
+IRValue builder_Cmp(IRBuilder* builder, enum Comparison cmp, IRValue a, IRValue b);
 IRValue builder_Global(IRBuilder* builder, String name);
 IRValue builder_Call(IRBuilder* builder, IRValue callee);
 void builder_Call_argument(IRValue call_instr, IRValue argument);

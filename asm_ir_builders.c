@@ -16,6 +16,10 @@ IRBuilder* create_builder(struct FunctionIR* function_ir, MemCtx* ctx) {
 Instruction* builder_add_instr(IRBuilder* builder) {
     Instruction* instr = lalist_grow_add(&builder->current_block->last_instrs, sizeof(Instruction));
     instr->base.index = builder->current_block->num_instrs++;
+    instr->base.reg = NO_REG;
+#ifdef OJIT_READABLE_IR
+    instr->base.is_disabled = false;
+#endif
     return instr;
 }
 
@@ -47,10 +51,6 @@ IRValue builder_add_parameter(IRBuilder* builder, String var_name) {
     instr->var_name = var_name;
     instr->entry_reg = NO_REG;
     instr->base.id = ID_BLOCK_PARAMETER_IR;
-#ifdef OJIT_READABLE_IR
-    instr->base.is_disabled = false;
-#endif
-    instr->base.reg = NO_REG;
     return (IRValue) instr;
 }
 
@@ -77,14 +77,11 @@ IRValue builder_get_variable(IRBuilder* builder, String var_name) {
 }
 
 
+// region Build Instruction
 IRValue builder_Int(IRBuilder* builder, int32_t constant) {
     struct IntIR* instr = &builder_add_instr(builder)->ir_int;
     instr->constant = constant;
     instr->base.id = ID_INT_IR;
-#ifdef OJIT_READABLE_IR
-    instr->base.is_disabled = false;
-#endif
-    instr->base.reg = NO_REG;
     return (Instruction*) instr;
 }
 
@@ -93,10 +90,6 @@ IRValue builder_Add(IRBuilder* builder, IRValue a, IRValue b) {
     instr->a = a;
     instr->b = b;
     instr->base.id = ID_ADD_IR;
-#ifdef OJIT_READABLE_IR
-    instr->base.is_disabled = false;
-#endif
-    instr->base.reg = NO_REG;
     return (Instruction*) instr;
 }
 
@@ -105,10 +98,15 @@ IRValue builder_Sub(IRBuilder* builder, IRValue a, IRValue b) {
     instr->a = a;
     instr->b = b;
     instr->base.id = ID_SUB_IR;
-#ifdef OJIT_READABLE_IR
-    instr->base.is_disabled = false;
-#endif
-    instr->base.reg = NO_REG;
+    return (Instruction*) instr;
+}
+
+IRValue builder_Cmp(IRBuilder* builder, enum Comparison cmp, IRValue a, IRValue b) {
+    struct CompareIR* instr = &builder_add_instr(builder)->ir_cmp;
+    instr->cmp = cmp;
+    instr->a = a;
+    instr->b = b;
+    instr->base.id = ID_CMP_IR;
     return (Instruction*) instr;
 }
 
@@ -117,10 +115,6 @@ IRValue builder_Call(IRBuilder* builder, IRValue callee) {
     instr->callee = callee;
     instr->arguments = lalist_grow(builder->ir_mem, NULL, NULL);
     instr->base.id = ID_CALL_IR;
-#ifdef OJIT_READABLE_IR
-    instr->base.is_disabled = false;
-#endif
-    instr->base.reg = NO_REG;
     return (Instruction*) instr;
 }
 
@@ -134,12 +128,9 @@ IRValue builder_Global(IRBuilder* builder, String name) {
     struct GlobalIR* instr = &builder_add_instr(builder)->ir_global;
     instr->name = name;
     instr->base.id = ID_GLOBAL_IR;
-#ifdef OJIT_READABLE_IR
-    instr->base.is_disabled = false;
-#endif
-    instr->base.reg = NO_REG;
     return (Instruction*) instr;
 }
+// endregion
 
 void builder_Return(IRBuilder* builder, IRValue value) {
     struct ReturnIR* term = &builder->current_block->terminator.ir_return;

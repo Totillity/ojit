@@ -518,36 +518,31 @@ ExpressionValue parse_addition(Parser* parser, bool lvalue) {
     return expr;
 }
 
-//ExpressionValue parse_compare(Parser* parser, bool lvalue) {
-//    ExpressionValue expr = parse_addition(parser, lvalue);
-//
-//    IRValue right;
-//    while (true) {
-//        Token curr = parser_peek(parser);
-//        switch (curr.type) {
-//            case TOKEN_LESS:
-//                parser_expect(parser, TOKEN_LESS);
-//                right = RVALUE(parse_addition(parser, false));
-//                expr = WRAP_RVALUE(builder_LessThan(parser->builder, RVALUE(expr), right));
-//                break;
-//            case TOKEN_MINUS:
-//                parser_expect(parser, TOKEN_MINUS);
-//                right = RVALUE(parse_addition(parser, false));
-//                expr = WRAP_RVALUE(builder_Sub(parser->builder, RVALUE(expr), right));
-//                break;
-//            default:
-//                goto at_end;
-//        }
-//    }
-//    at_end:
-//
-//    return expr;
-//}
+ExpressionValue parse_compare(Parser* parser, bool lvalue) {
+    ExpressionValue expr = parse_addition(parser, lvalue);
+
+    IRValue right;
+    while (true) {
+        Token curr = parser_peek(parser);
+        enum Comparison cmp;
+        switch (curr.type) {
+            case TOKEN_LESS: cmp = IF_LESS; break;
+            case TOKEN_GREATER: cmp = IF_GREATER; break;
+            default: goto at_end;
+        }
+        parser_advance(parser);
+        right = RVALUE(parse_addition(parser, false));
+        expr = WRAP_RVALUE(builder_Cmp(parser->builder, cmp, RVALUE(expr), right));
+    }
+    at_end:
+
+    return expr;
+}
 
 
 ExpressionValue parse_assign(Parser* parser) {
-//    ExpressionValue expr = parse_compare(parser, true);
-    ExpressionValue expr = parse_addition(parser, true);
+    ExpressionValue expr = parse_compare(parser, true);
+//    ExpressionValue expr = parse_addition(parser, true);
     if (parser_peek_is(parser, TOKEN_EQUAL)) {
         parser_expect(parser, TOKEN_EQUAL);
         String var = LVALUE(expr);  // TODO add check here so it doesn't just fail
