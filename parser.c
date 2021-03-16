@@ -420,8 +420,8 @@ String get_lvalue(ExpressionValue value) {
 #define WRAP_RVALUE(v) ((ExpressionValue) {.also_lvalue = false, .rvalue = (v)})
 
 
+// region Parse Expression
 IRValue parse_expression(Parser* parser);
-
 
 ExpressionValue parse_terminal(Parser* parser, bool lvalue) {
     Token curr = parser_peek(parser);
@@ -518,8 +518,35 @@ ExpressionValue parse_addition(Parser* parser, bool lvalue) {
     return expr;
 }
 
+//ExpressionValue parse_compare(Parser* parser, bool lvalue) {
+//    ExpressionValue expr = parse_addition(parser, lvalue);
+//
+//    IRValue right;
+//    while (true) {
+//        Token curr = parser_peek(parser);
+//        switch (curr.type) {
+//            case TOKEN_LESS:
+//                parser_expect(parser, TOKEN_LESS);
+//                right = RVALUE(parse_addition(parser, false));
+//                expr = WRAP_RVALUE(builder_LessThan(parser->builder, RVALUE(expr), right));
+//                break;
+//            case TOKEN_MINUS:
+//                parser_expect(parser, TOKEN_MINUS);
+//                right = RVALUE(parse_addition(parser, false));
+//                expr = WRAP_RVALUE(builder_Sub(parser->builder, RVALUE(expr), right));
+//                break;
+//            default:
+//                goto at_end;
+//        }
+//    }
+//    at_end:
+//
+//    return expr;
+//}
+
 
 ExpressionValue parse_assign(Parser* parser) {
+//    ExpressionValue expr = parse_compare(parser, true);
     ExpressionValue expr = parse_addition(parser, true);
     if (parser_peek_is(parser, TOKEN_EQUAL)) {
         parser_expect(parser, TOKEN_EQUAL);
@@ -536,7 +563,9 @@ ExpressionValue parse_assign(Parser* parser) {
 IRValue parse_expression(Parser* parser) {
     return RVALUE(parse_assign(parser));
 }
+// endregion
 
+// region Parse Statement
 void parse_statement(Parser* parser);
 
 void parse_if(Parser* parser) {
@@ -594,7 +623,7 @@ void parse_statement(Parser* parser) {
         default: parse_expression(parser); parser_expect(parser, TOKEN_SEMICOLON); break;
     }
 }
-
+// endregion
 
 void parse_function(Parser* parser) {
     parser_expect(parser, TOKEN_DEF);

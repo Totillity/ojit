@@ -5,59 +5,70 @@ struct OptState {
 };
 
 #define TYPE_OF(instr) ((instr)->base.id)
-#define INT_CONST(instr) ((instr)->ir_int.constant)
+
+void disable_instr(Instruction* instr) {
+    (void) instr;
+}
+
+void replace_instr_int(Instruction* instr, uint32_t constant) {
+    instr->base.id = ID_INT_IR;
+    instr->ir_int.constant = constant;
+}
+void replace_instr_add(Instruction* instr, Instruction* a, Instruction* b) {
+    instr->base.id = ID_ADD_IR;
+    instr->ir_add.a = a;
+    instr->ir_add.b = b;
+}
 
 void optimize_add_ir(Instruction* instr) {
     struct AddIR* add_ir = &instr->ir_add;
-    if (TYPE_OF(add_ir->b) == ID_INT_IR) {
-        if (TYPE_OF(add_ir->a) == ID_INT_IR) {
-            uint32_t sum = add_ir->a->ir_int.constant + add_ir->b->ir_int.constant;
-            instr->base.id = ID_INT_IR;
-            instr->ir_int.constant = sum;
-#ifdef OJIT_READABLE_IR
-            instr->ir_add.a->base.is_disabled = true;
-            instr->ir_add.b->base.is_disabled = true;
-#endif
-        } else if (TYPE_OF(add_ir->a) == ID_ADD_IR) {
-            struct AddIR* inner_add = &add_ir->a->ir_add;
+
+    bool a_is_int = TYPE_OF(add_ir->a) == ID_INT_IR;
+    bool b_is_int = TYPE_OF(add_ir->b) == ID_INT_IR;
+
+    if (a_is_int && b_is_int) {
+        replace_instr_int(instr, add_ir->a->ir_int.constant + add_ir->b->ir_int.constant);
+        disable_instr(add_ir->a);
+        disable_instr(add_ir->b);
+    } else if (a_is_int && TYPE_OF(add_ir->b) == ID_ADD_IR) {
+        struct AddIR* inner_add = &add_ir->b->ir_add;
+        uint32_t outer_const = add_ir->a->ir_int.constant;
+        if (TYPE_OF(inner_add->a) == ID_INT_IR || TYPE_OF(inner_add->b) == ID_INT_IR) {
+            uint32_t inner_const;
+            Instruction* inner_val;
             if (TYPE_OF(inner_add->a) == ID_INT_IR) {
-                uint32_t sum = INT_CONST(inner_add->a) + INT_CONST(add_ir->b);
-                add_ir->a = inner_add->b;
-                INT_CONST(add_ir->b) = sum;
-#ifdef OJIT_READABLE_IR
-                inner_add->base.is_disabled = true;
-                inner_add->a->base.is_disabled = true;
-#endif
-            } else if (TYPE_OF(inner_add->b) == ID_INT_IR) {
-                uint32_t sum = INT_CONST(inner_add->b) + INT_CONST(add_ir->b);
-                add_ir->a = inner_add->a;
-                INT_CONST(add_ir->b) = sum;
-#ifdef OJIT_READABLE_IR
-                inner_add->base.is_disabled = true;
-                inner_add->b->base.is_disabled = true;
-#endif
+                inner_const = inner_add->a->ir_int.constant;
+                inner_val = inner_add->b;
+                disable_instr(inner_add->a);
+            } else {
+                inner_const = inner_add->b->ir_int.constant;
+                inner_val = inner_add->a;
+                disable_instr(inner_add->b);
             }
+            uint32_t new_constant = outer_const + inner_const;
+            disable_instr(add_ir->b);
+            replace_instr_int(add_ir->a, new_constant);
+            replace_instr_add((Instruction*) add_ir, add_ir->a, inner_val);
         }
-    } else if (TYPE_OF(add_ir->a) == ID_INT_IR) {
-        if (TYPE_OF(add_ir->b) == ID_ADD_IR) {
-            struct AddIR* inner_add = &add_ir->b->ir_add;
+    } else if (b_is_int && TYPE_OF(add_ir->a) == ID_ADD_IR) {
+        struct AddIR* inner_add = &add_ir->a->ir_add;
+        uint32_t outer_const = add_ir->b->ir_int.constant;
+        if (TYPE_OF(inner_add->a) == ID_INT_IR || TYPE_OF(inner_add->b) == ID_INT_IR) {
+            uint32_t inner_const;
+            Instruction* inner_val;
             if (TYPE_OF(inner_add->a) == ID_INT_IR) {
-                uint32_t sum = INT_CONST(inner_add->a) + INT_CONST(add_ir->a);
-                add_ir->b = inner_add->b;
-                INT_CONST(add_ir->a) = sum;
-#ifdef OJIT_READABLE_IR
-                inner_add->base.is_disabled = true;
-                inner_add->a->base.is_disabled = true;
-#endif
-            } else if (TYPE_OF(inner_add->b) == ID_INT_IR) {
-                uint32_t sum = INT_CONST(inner_add->b) + INT_CONST(add_ir->a);
-                add_ir->b = inner_add->a;
-                INT_CONST(add_ir->a) = sum;
-#ifdef OJIT_READABLE_IR
-                inner_add->base.is_disabled = true;
-                inner_add->b->base.is_disabled = true;
-#endif
+                inner_const = inner_add->a->ir_int.constant;
+                inner_val = inner_add->b;
+                disable_instr(inner_add->a);
+            } else {
+                inner_const = inner_add->b->ir_int.constant;
+                inner_val = inner_add->a;
+                disable_instr(inner_add->b);
             }
+            uint32_t new_constant = outer_const + inner_const;
+            disable_instr(add_ir->a);
+            replace_instr_int(add_ir->b, new_constant);
+            replace_instr_add((Instruction*) add_ir, inner_val, add_ir->b);
         }
     }
 }
@@ -76,6 +87,20 @@ void ojit_optimize_block(struct BlockIR* block, struct OptState* state) {
     ojit_peephole_optimizer(block, state);
 }
 
+void ojit_optimize_params_branch(struct BlockIR* target, struct BlockIR* block, bool* was_used) {
+    FOREACH_INSTR(param, target->first_instrs) {
+        if (param->base.id == ID_BLOCK_PARAMETER_IR) {
+            String var_name = param->ir_parameter.var_name;
+            if (var_name) {
+                Instruction* instr_ptr; hash_table_get(&block->variables, STRING_KEY(var_name), (uint64_t*) &instr_ptr);
+                was_used[instr_ptr->base.index] = true;
+            }
+        } else {
+            break;
+        }
+    }
+}
+
 void ojit_optimize_params(struct FunctionIR* func) {
     FOREACH_REV(block, func->last_blocks, struct BlockIR) {
         bool was_used[block->num_instrs]; ojit_memset(was_used, false, block->num_instrs);
@@ -88,42 +113,12 @@ void ojit_optimize_params(struct FunctionIR* func) {
                 break;
             }
             case ID_BRANCH_IR: {
-                FOREACH_INSTR(param, term.ir_branch.target->first_instrs) {
-                    if (param->base.id == ID_BLOCK_PARAMETER_IR) {
-                        String var_name = param->ir_parameter.var_name;
-                        if (var_name) {
-                            Instruction* instr_ptr; hash_table_get(&block->variables, STRING_KEY(var_name), (uint64_t*) &instr_ptr);
-                            was_used[INDEX(instr_ptr)] = true;
-                        }
-                    } else {
-                        break;
-                    }
-                }
+                ojit_optimize_params_branch(term.ir_branch.target, block, was_used);
                 break;
             }
             case ID_CBRANCH_IR: {
-                FOREACH_INSTR(param, term.ir_cbranch.true_target->first_instrs) {
-                    if (param->base.id == ID_BLOCK_PARAMETER_IR) {
-                        String var_name = param->ir_parameter.var_name;
-                        if (var_name) {
-                            Instruction* instr_ptr; hash_table_get(&block->variables, STRING_KEY(var_name), (uint64_t*) &instr_ptr);
-                            was_used[INDEX(instr_ptr)] = true;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                FOREACH_INSTR(param1, term.ir_cbranch.false_target->first_instrs) {
-                    if (param1->base.id == ID_BLOCK_PARAMETER_IR) {
-                        String var_name = param1->ir_parameter.var_name;
-                        if (var_name) {
-                            Instruction* instr_ptr; hash_table_get(&block->variables, STRING_KEY(var_name), (uint64_t*) &instr_ptr);
-                            was_used[INDEX(instr_ptr)] = true;
-                        }
-                    } else {
-                        break;
-                    }
-                }
+                ojit_optimize_params_branch(term.ir_cbranch.true_target, block, was_used);
+                ojit_optimize_params_branch(term.ir_cbranch.false_target, block, was_used);
                 break;
             }
             default: {
