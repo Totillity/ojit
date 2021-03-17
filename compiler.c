@@ -15,7 +15,6 @@ struct OffsetRecord {
 };
 
 struct BlockRecord {
-    struct BlockIR* block;
     size_t offset;
     LAList* last_mem_block;
     LAList* offset_records;
@@ -23,7 +22,6 @@ struct BlockRecord {
 
 struct AssemblerState {
     struct BlockIR* block;
-    size_t block_num;
     uint8_t* front_ptr;
     bool used_registers[16];
     uint32_t block_generated;
@@ -38,7 +36,6 @@ struct AssemblerState {
 
 void init_asm_state(struct AssemblerState* state, struct BlockIR* block, LAList* init_mem, LAList** offset_records_ptr, struct GetFunctionCallback callback) {
     state->block = block;
-    state->block_num = block->block_num;
     state->front_ptr = &init_mem->mem[LALIST_BLOCK_SIZE];
 
     // Windows makes you assume the registers RBX, RSI, RDI, RBP, R12-R15 are used
@@ -323,13 +320,13 @@ void __attribute__((always_inline)) asm_emit_setcc(enum Comparison cond, enum Re
     asm_emit_byte(cond + 0x10, state);
     asm_emit_byte(0x0F, state);
     if (reg & 0b1000) {
-        asm_emit_byte(REX(0, 1, 0, 0), state);
+        asm_emit_byte(REX(0, 0, 0, 1), state);
     }
 }
 
 void __attribute__((always_inline)) asm_emit_jmp(struct BlockIR* target, struct AssemblerState* state) {
 #ifdef OJIT_OPTIMIZATIONS
-    if (target->block_num - state->block_num == 1) return;
+    if (target->prev_block == state->block) return;
 #endif
     struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
     record_ptr->offset_from_end = offset_from_end(state);
@@ -342,7 +339,7 @@ void __attribute__((always_inline)) asm_emit_jmp(struct BlockIR* target, struct 
 void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, struct BlockIR* target, struct AssemblerState* state) {
     // TODO: If I subtract 0x10 from the cond-code, I can make the offsets 1 byte
 #ifdef OJIT_OPTIMIZATIONS
-    if (target->block_num - state->block_num == 1) return;
+    if (target->prev_block == state->block) return;
 #endif
     struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
     record_ptr->offset_from_end = offset_from_end(state);
@@ -558,6 +555,7 @@ void __attribute__((always_inline)) emit_block_parameter(Instruction* instructio
     unmark_register(this_reg, state);
 
     Register64 entry_reg = instr->entry_reg;
+    OJIT_ASSERT(entry_reg != NO_REG, "Error: Parameter entry register is unassigned");
     asm_emit_xchg_r64_r64(state->swap_owner_of[entry_reg], this_reg, state);
     state->swap_owner_of[entry_reg] = this_reg;
 }
@@ -814,13 +812,9 @@ void dump_function(struct FunctionIR* func) {
     MemCtx* tmp_mem = create_mem_ctx();
     init_hash_table(&var_names, tmp_mem);
 
-    LAListIter block_iter;
-    lalist_init_iter(&block_iter, func->first_blocks, sizeof(struct BlockIR));
-    struct BlockIR* block = lalist_iter_next(&block_iter);
-    int k = 0;
-
-    while (k < func->num_blocks) {
-        printf("    BLOCK @%zu\n", block->block_num);
+    struct BlockIR* block = func->first_block;
+    while (block) {
+        printf("    BLOCK @%p\n", block);
 
         FOREACH_INSTR(instr, block->first_instrs) {
             int i = get_var_num(instr, &var_names);
@@ -881,14 +875,14 @@ void dump_function(struct FunctionIR* func) {
         }
         switch (block->terminator.ir_base.id) {
             case ID_BRANCH_IR: {
-                printf("        BRANCH @%zu\n", block->terminator.ir_branch.target->block_num);
+                printf("        BRANCH @%p\n", block->terminator.ir_branch.target);
                 break;
             }
             case ID_CBRANCH_IR: {
-                printf("        CBRANCH $%i (true: @%zu, false: @%zu)\n",
+                printf("        CBRANCH $%i (true: @%p, false: @%p)\n",
                        get_var_num(block->terminator.ir_cbranch.cond, &var_names),
-                       block->terminator.ir_cbranch.true_target->block_num,
-                       block->terminator.ir_cbranch.false_target->block_num);
+                       block->terminator.ir_cbranch.true_target,
+                       block->terminator.ir_cbranch.false_target);
                 break;
             }
             case ID_RETURN_IR: {
@@ -900,8 +894,7 @@ void dump_function(struct FunctionIR* func) {
             }
         }
 
-        block = lalist_iter_next(&block_iter);
-        k++;
+        block = block->next_block;
     }
     destroy_mem_ctx(tmp_mem);
 }
@@ -932,24 +925,26 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 #ifdef OJIT_OPTIMIZATIONS
     ojit_optimize_func(func, callback);
 #endif
-//    dump_function(func);
+    dump_function(func);
 
     struct AssemblerState state;
     state.ctx = compiler_mem;
 
     size_t generated_size = 0;
-    struct BlockRecord* block_records = ojit_alloc(compiler_mem, sizeof(struct BlockRecord) * func->num_blocks);
 
     assign_function_parameters(func);
 
-    int i = 0;
-    FOREACH(block, func->first_blocks, struct BlockIR) {
+    struct BlockIR* block = func->first_block;
+    while (block) {
         LAList* init_mem = lalist_new(compiler_mem);
-        block_records[i].block = block;
-        block_records[i].offset = generated_size;
-        block_records[i].last_mem_block = init_mem;
-        block_records[i].offset_records = lalist_new(compiler_mem);
-        init_asm_state(&state, block, init_mem, &block_records[i].offset_records, callback);
+
+        struct BlockRecord* record = ojit_alloc(compiler_mem, sizeof(struct BlockRecord));
+        record->offset = generated_size;
+        record->last_mem_block = init_mem;
+        record->offset_records = lalist_new(compiler_mem);
+        block->data = record;
+
+        init_asm_state(&state, block, init_mem, &record->offset_records, callback);
 
         emit_terminator(&block->terminator, &state);
 
@@ -966,15 +961,15 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
         state.newest_mem_block->len = LALIST_BLOCK_SIZE - (state.front_ptr - state.newest_mem_block->mem);
         generated_size += offset_from_end(&state);
 
-        i++;
+        block = block->next_block;
     }
 
     uint8_t* func_mem = ojit_alloc(compiler_mem, generated_size);
     uint8_t* write_ptr = func_mem + generated_size;
 
-    for (int b_i = func->num_blocks - 1; b_i >= 0; b_i--) {
-        struct BlockRecord record = block_records[b_i];
-        block = record.block;
+    block = func->last_block;
+    while (block) {
+        struct BlockRecord record = *(struct BlockRecord*) block->data;
         LAList* curr_mem_block = record.last_mem_block;
         uint8_t* start_ptr = write_ptr;
         while (curr_mem_block) {
@@ -988,7 +983,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
         int m = 0;
         FOREACH(offset_record, record.offset_records, struct OffsetRecord) {
             uint8_t* offset_ptr = (start_ptr - offset_record->offset_from_end);
-            struct BlockRecord target_record = block_records[offset_record->target->block_num];
+            struct BlockRecord target_record = *((struct BlockRecord*) offset_record->target->data);
             uintptr_t offset = (func_mem + target_record.offset) - offset_ptr;
             *(offset_ptr - 4) = (uint8_t) (offset >> 0) & 0xFF;
             *(offset_ptr - 3) = (uint8_t) (offset >> 8) & 0xFF;
@@ -997,6 +992,8 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 //            printf("Wrote %llu for %i at %p\n", offset, b_i, offset_ptr);
             m++;
         }
+
+        block = block->prev_block;
     }
 
     return (struct CompiledFunction) {func_mem, generated_size};

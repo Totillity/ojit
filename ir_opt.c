@@ -102,7 +102,8 @@ void ojit_optimize_params_branch(struct BlockIR* target, struct BlockIR* block, 
 }
 
 void ojit_optimize_params(struct FunctionIR* func) {
-    FOREACH_REV(block, func->last_blocks, struct BlockIR) {
+    struct BlockIR* block = func->last_block;
+    while (block) {
         bool was_used[block->num_instrs]; ojit_memset(was_used, false, block->num_instrs);
 #define INDEX(instr_ptr) ((instr_ptr)->base.index)
 
@@ -154,6 +155,13 @@ void ojit_optimize_params(struct FunctionIR* func) {
                     }
                     break;
                 }
+                case ID_CMP_IR: {
+                    if (was_used[INDEX(instr)]) {
+                        was_used[INDEX(instr->ir_sub.a)] = true;
+                        was_used[INDEX(instr->ir_sub.b)] = true;
+                    }
+                    break;
+                }
                 case ID_CALL_IR: {
                     FOREACH(arg, instr->ir_call.arguments, IRValue) {
                         was_used[INDEX(*arg)] = true;
@@ -165,6 +173,7 @@ void ojit_optimize_params(struct FunctionIR* func) {
                 }
             }
         }
+        block = block->prev_block;
 #undef INDEX
     }
 }

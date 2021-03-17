@@ -569,9 +569,9 @@ void parse_if(Parser* parser) {
     IRValue cond = parse_expression(parser);
     parser_expect(parser, TOKEN_RIGHT_PAREN);
 
-    struct BlockIR* then_block = builder_add_block(parser->builder);
-    struct BlockIR* else_block = builder_add_block(parser->builder);
-    struct BlockIR* after_block = builder_add_block(parser->builder);
+    struct BlockIR* then_block = builder_add_block(parser->builder, parser->builder->current_block);
+    struct BlockIR* else_block = builder_add_block(parser->builder, then_block);
+    struct BlockIR* after_block = builder_add_block(parser->builder, else_block);
     builder_CBranch(parser->builder, cond, then_block, else_block);
 
     builder_enter_block(parser->builder, then_block);
@@ -609,12 +609,28 @@ void parse_return(Parser* parser) {
 }
 
 
+void parse_block(Parser* parser) {
+    parser_expect(parser, TOKEN_LEFT_BRACE);
+    struct BlockIR* inside_block = builder_add_block(parser->builder, parser->builder->current_block);
+    builder_Branch(parser->builder, inside_block);
+    builder_enter_block(parser->builder, inside_block);
+    while (!parser_peek_is(parser, TOKEN_RIGHT_BRACE)) {
+        parse_statement(parser);
+    }
+    parser_expect(parser, TOKEN_RIGHT_BRACE);
+    struct BlockIR* after_block = builder_add_block(parser->builder, parser->builder->current_block);
+    builder_Branch(parser->builder, after_block);
+    builder_enter_block(parser->builder, after_block);
+}
+
+
 void parse_statement(Parser* parser) {
     Token curr = parser_peek(parser);
     switch (curr.type) {
         case TOKEN_RETURN: parse_return(parser); break;
         case TOKEN_LET: parse_let(parser); break;
         case TOKEN_IF: parse_if(parser); break;
+        case TOKEN_LEFT_BRACE: parse_block(parser); break;
         default: parse_expression(parser); parser_expect(parser, TOKEN_SEMICOLON); break;
     }
 }

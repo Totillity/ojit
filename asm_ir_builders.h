@@ -12,7 +12,7 @@ typedef struct {
 } IRBuilder;
 
 IRBuilder* create_builder(struct FunctionIR* function_ir, MemCtx* ir_mem);
-struct BlockIR* builder_add_block(IRBuilder* builder);
+struct BlockIR* builder_add_block(IRBuilder* builder, struct BlockIR* after_block);
 
 void builder_enter_block(IRBuilder* builder, struct BlockIR* block_ir);
 // endregion

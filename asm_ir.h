@@ -188,7 +188,10 @@ struct BlockIR {
     bool has_vars;
     struct HashTable variables;
 
-    size_t block_num;
+    void* data;
+
+    struct BlockIR* prev_block;
+    struct BlockIR* next_block;
 };
 // endregion
 
@@ -197,7 +200,9 @@ struct FunctionIR {
     String name;
     LAList* first_blocks;
     LAList* last_blocks;
-    size_t num_blocks;
+
+    struct BlockIR* first_block;
+    struct BlockIR* last_block;
 
     void* compiled;
 };
