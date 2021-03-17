@@ -624,23 +624,22 @@ void __attribute__((always_inline)) emit_cmp(Instruction* instruction, struct As
     Register64 a_register = instr_fetch_reg(instr->a, NO_REG, state);
     Register64 b_register = instr_fetch_reg(instr->b, NO_REG, state);
 
-//#ifdef OJIT_OPTIMIZATIONS
-//    if (TYPE_OF(instr->a) == ID_INT_IR || TYPE_OF(instr->b) == ID_INT_IR) {
-//        Register64 add_to;
-//        uint32_t constant;
-//        if (TYPE_OF(instr->a) == ID_INT_IR) {
-//            add_to = instr_fetch_reg(instr->b, this_reg, state);
-//            constant = instr->a->ir_int.constant;
-//        } else {
-//            add_to = instr_fetch_reg(instr->a, this_reg, state);
-//            constant = instr->b->ir_int.constant;
-//        }
-//        mark_register(add_to, state);
-//        asm_emit_add_r64_i32(add_to, constant, state);
-//        asm_emit_mov_r64_r64(this_reg, add_to, state);
-//        return;
-//    }
-//#endif
+#ifdef OJIT_OPTIMIZATIONS
+    if (TYPE_OF(instr->a) == ID_INT_IR || TYPE_OF(instr->b) == ID_INT_IR) {
+        Register64 cmp_with;
+        uint32_t constant;
+        if (TYPE_OF(instr->a) == ID_INT_IR) {
+            cmp_with = instr_fetch_reg(instr->b, this_reg, state);
+            constant = instr->a->ir_int.constant;
+        } else {
+            cmp_with = instr_fetch_reg(instr->a, this_reg, state);
+            constant = instr->b->ir_int.constant;
+        }
+        asm_emit_setcc(instr->cmp, this_reg, state);
+        asm_emit_cmp_r64_i32(cmp_with, constant, state);
+        return;
+    }
+#endif
     asm_emit_setcc(instr->cmp, this_reg, state);
     asm_emit_cmp_r64_r64(a_register, b_register, state);
 }

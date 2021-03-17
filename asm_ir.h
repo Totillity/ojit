@@ -106,6 +106,10 @@ enum Comparison {
     IF_GREATER_EQUAL = 0x8D,
 };
 
+extern bool inverted_cmp[16];
+
+#define INV_CMP(cmp) (inverted_cmp[(cmp)-0x80])
+
 struct CompareIR {
     struct InstructionBase base;
     enum Comparison cmp;
