@@ -1,7 +1,7 @@
 #include "ojit_def.h"
 #include "asm_ir_builders.h"
 
-bool inverted_cmp[16] = {
+enum Comparison inverted_cmp[16] = {
         [IF_EQUAL-0x80] = 0x85,
         [IF_NOT_EQUAL-0x80] = 0x84,
         [IF_LESS-0x80] = 0x8D,
