@@ -390,7 +390,7 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
             add_to = instr_fetch_reg(instr->a, this_reg, state);
             constant = instr->b->ir_int.constant;
         }
-        asm_emit_add_r64_i32(add_to, constant, state);
+        asm_emit_add_r64_i32(this_reg, constant, state);
         asm_emit_mov_r64_r64(this_reg, add_to, state);
         return;
     }
@@ -466,7 +466,7 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
             sub_from = instr_fetch_reg(instr->a, this_reg, state);
             constant = instr->b->ir_int.constant;
         }
-        asm_emit_sub_r64_i32(sub_from, constant, state);
+        asm_emit_sub_r64_i32(this_reg, constant, state);
         asm_emit_mov_r64_r64(this_reg, sub_from, state);
         return;
     }
@@ -556,8 +556,11 @@ void __attribute__((always_inline)) emit_block_parameter(Instruction* instructio
 
     Register64 entry_reg = instr->entry_reg;
     OJIT_ASSERT(entry_reg != NO_REG, "Error: Parameter entry register is unassigned");
+#ifdef OJIT_OPTIMIZATIONS
+#endif
     asm_emit_xchg_r64_r64(state->swap_owner_of[entry_reg], this_reg, state);
     state->swap_owner_of[entry_reg] = this_reg;
+    state->swap_owner_of[this_reg] = entry_reg;
 }
 
 void __attribute__((always_inline)) emit_global(Instruction* instruction, struct AssemblerState* state) {

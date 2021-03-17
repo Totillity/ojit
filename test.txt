@@ -3,10 +3,12 @@ def main(a1) {
     let i = 0;
     if (a1 < 3) {
         a2 = a1 + 1;
+        i = a2 + 4;
     } else {
         a2 = a1 - 2;
+        i = a2 - 2;
     }
-    let a3  = a2  +  3;
+    let a3  = a2  +  i;
     let a4  = a3  +  4;
     let a5  = a4  +  5;
     let a6  = a5  +  6;

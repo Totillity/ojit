@@ -181,8 +181,10 @@ void ojit_optimize_params(struct FunctionIR* func) {
 void ojit_optimize_func(struct FunctionIR* func, struct GetFunctionCallback callbacks) {
     struct OptState state = {.callbacks = callbacks};
 
-    FOREACH(block, func->first_blocks, struct BlockIR) {
+    struct BlockIR* block = func->first_block;
+    while (block) {
         ojit_optimize_block(block, &state);
+        block = block->next_block;
     }
 
     ojit_optimize_params(func);
