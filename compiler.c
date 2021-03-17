@@ -369,6 +369,17 @@ void __attribute__((always_inline)) emit_return(union TerminatorIR* terminator, 
     }
 }
 
+Register64 __attribute__((always_inline)) find_target_reg(bool* target_registers, Register64 suggestion, struct AssemblerState* state) {
+    if (!target_registers[suggestion]) return suggestion;
+    for (Register64 reg = 0; reg < 16; reg++) {
+        if (!target_registers[reg] && !state->used_registers[reg]) {
+            return reg;
+        }
+    }
+    printf("Too many registers used concurrently");
+    exit(-1);  // TODO register spilling
+}
+
 void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struct AssemblerState* state) {
     bool target_registers[16] = {
             [RAX] = false,
@@ -392,41 +403,27 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
     FOREACH_INSTR(instr, target->first_instrs) {
         if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
             struct ParameterIR* param = &instr->ir_parameter;
-            if (param->var_name) {
-                IRValue argument;
-                hash_table_get(&state->block->variables, STRING_KEY(param->var_name), (uint64_t*) &argument);
+            if (!param->var_name) continue;
+            IRValue argument;
+            hash_table_get(&state->block->variables, STRING_KEY(param->var_name), (uint64_t*) &argument);
 
-                Register64 param_reg = param->entry_reg;
-                Register64 argument_reg = GET_REG(argument);
+            Register64 param_reg = param->entry_reg;
+            Register64 argument_reg = GET_REG(argument);
 
-                if (!IS_ASSIGNED(param_reg)) {
-                    if (target_registers[argument_reg]) {
-                        for (Register64 reg = 0; reg < 16; reg++) {
-                            if (!target_registers[reg] && !state->used_registers[reg]) {
-                                param_reg = reg;
-                                break;
-                            }
-                        }
-                        if (param_reg == NO_REG) {
-                            printf("Too many registers used concurrently");
-                            exit(-1);  // TODO register spilling
-                        }
-                    } else {
-                        param_reg = argument_reg;
-                    }
-                    target_registers[param_reg] = true;
-                    param->entry_reg = param_reg;
-                } else {
-                    if (REG_IS_MARKED(param_reg)) {
-                        printf("something here also used the register the argument needs to go into\n");
-                        exit(-1);  // TODO oh god not again
-                    }
+            if (IS_ASSIGNED(param_reg)) {
+                if (REG_IS_MARKED(param_reg)) {
+                    printf("something here also used the register the argument needs to go into\n");
+                    exit(-1);  // TODO oh god not again
                 }
-                if (!IS_ASSIGNED(argument_reg)) {
-                    argument_reg = instr_fetch_reg(argument, param_reg, state);
-                }
-                asm_emit_mov_r64_r64(param_reg, argument_reg, state);
+            } else {
+                param_reg = find_target_reg(target_registers, argument_reg, state);
+                target_registers[param_reg] = true;
+                param->entry_reg = param_reg;
             }
+            if (!IS_ASSIGNED(argument_reg)) {
+                argument_reg = instr_fetch_reg(argument, param_reg, state);
+            }
+            asm_emit_mov_r64_r64(param_reg, argument_reg, state);
         } else {
             break;
         }
@@ -643,7 +640,6 @@ void __attribute__((always_inline)) emit_cmp(Instruction* instruction, struct As
     asm_emit_setcc(instr->cmp, this_reg, state);
     asm_emit_cmp_r64_r64(a_register, b_register, state);
 }
-
 
 void __attribute__((always_inline)) emit_block_parameter(Instruction* instruction, struct AssemblerState* state) {
     struct ParameterIR* instr = &instruction->ir_parameter;
