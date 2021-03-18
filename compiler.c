@@ -699,7 +699,7 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
     FOREACH_INSTR(instr, target->first_instrs) {
         if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
             struct ParameterIR* param = &instr->ir_parameter;
-            if (param->var_name == NULL) continue;
+            if (param->base.refs == 0) continue;
             IRValue argument;
             hash_table_get(&state->block->variables, STRING_KEY(param->var_name), (uint64_t*) &argument);
 
@@ -713,9 +713,10 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
                 }
             } else {
                 if (!IS_ASSIGNED(argument_reg) && TYPE_OF(argument) == ID_BLOCK_PARAMETER_IR && argument->ir_parameter.entry_reg != NO_REG) {
-                    argument_reg = argument->ir_parameter.entry_reg;
-                    instr_assign_reg(argument, argument_reg);
-                    mark_register(argument_reg, state);
+//                    argument_reg = ;
+                    argument_reg = instr_fetch_reg(argument, argument->ir_parameter.entry_reg, state);
+//                    instr_assign_reg(argument, argument_reg);
+//                    mark_register(argument_reg, state);
                 }
                 param_reg = find_target_reg(target_registers, argument_reg, state);
                 target_registers[param_reg] = true;
@@ -832,7 +833,7 @@ void dump_function(struct FunctionIR* func) {
         FOREACH_INSTR(instr, block->first_instrs) {
             int i = get_var_num(instr, &var_names);
 #ifdef OJIT_READABLE_IR
-            if (instr->base.is_disabled) {
+            if (instr->base.refs == 0) {
                 printf("        (LIKELY DISABLED) ");
             } else {
                 printf("        ");

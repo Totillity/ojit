@@ -4,12 +4,17 @@ struct OptState {
     struct GetFunctionCallback callbacks;
 };
 
+enum FoldStep {
+    CONTINUE_FOLD,
+    REPEAT_FOLD,
+};
+
 #define TYPE_OF(instr) ((instr)->base.id)
+#define AS_INSTR(instr) ((Instruction*) (instr))
 
 void disable_instr(Instruction* instr) {
     (void) instr;
 }
-
 void replace_instr_int(Instruction* instr, uint32_t constant) {
     instr->base.id = ID_INT_IR;
     instr->ir_int.constant = constant;
@@ -73,12 +78,43 @@ void optimize_add_ir(Instruction* instr) {
     }
 }
 
-void ojit_peephole_optimizer(struct BlockIR* block, struct OptState* state) {
-    (void) state;
-    FOREACH_INSTR(instr, block->first_instrs) {
-        switch (TYPE_OF(instr)) {
-            case ID_ADD_IR: optimize_add_ir(instr); break;
-            default: break;
+#define MATCH_ADD(a_type, b_type, func) \
+    if (TYPE_OF(instr) == ID_ADD_IR && TYPE_OF(instr->ir_add.a) == a_type && TYPE_OF(instr->ir_add.b) == b_type) { \
+        next_step = func((void*) instr, (void*) instr->ir_add.a, (void*) instr->ir_add.b, &state); \
+    } else
+
+#define DEFAULT(func) {next_step = func(instr, &state);}
+
+struct FoldState {
+
+};
+
+enum FoldStep fold_add_int_int(struct AddIR* instr, struct IntIR* a, struct IntIR* b, struct FoldState* state) {
+    replace_instr_int(AS_INSTR(instr), a->constant + b->constant);
+    return REPEAT_FOLD;
+}
+
+enum FoldStep fold_add_int_add(struct AddIR* instr, struct IntIR* a, struct AddIR* b, struct FoldState* state) {
+    return CONTINUE_FOLD;
+}
+
+enum FoldStep fold_default(Instruction* instr, struct FoldState* state) {
+    return CONTINUE_FOLD;
+}
+
+void ojit_peephole_optimizer(struct BlockIR* block, struct OptState* opt_state) {
+    (void) opt_state;
+
+    bool was_used[block->num_instrs];
+    for (int i = 0; i < block->num_instrs; i++) was_used[i] = false;
+
+    struct FoldState state = {};
+    FOREACH(instr, block->first_instrs, Instruction) {
+        enum FoldStep next_step = REPEAT_FOLD;
+        while (next_step == REPEAT_FOLD) {
+            MATCH_ADD(ID_INT_IR, ID_INT_IR, fold_add_int_int)
+            MATCH_ADD(ID_INT_IR, ID_ADD_IR, fold_add_int_add)
+            DEFAULT(fold_default)
         }
     }
 }
@@ -87,13 +123,17 @@ void ojit_optimize_block(struct BlockIR* block, struct OptState* state) {
     ojit_peephole_optimizer(block, state);
 }
 
-void ojit_optimize_params_branch(struct BlockIR* target, struct BlockIR* block, bool* was_used) {
+void ojit_optimize_params_branch(struct BlockIR* target, struct BlockIR* block) {
     FOREACH_INSTR(param, target->first_instrs) {
         if (param->base.id == ID_BLOCK_PARAMETER_IR) {
             String var_name = param->ir_parameter.var_name;
             if (var_name) {
-                Instruction* instr_ptr; hash_table_get(&block->variables, STRING_KEY(var_name), (uint64_t*) &instr_ptr);
-                was_used[instr_ptr->base.index] = true;
+                Instruction* instr_ptr;
+                hash_table_get(&block->variables, STRING_KEY(var_name), (uint64_t*) &instr_ptr);
+                if (param->base.refs > 0) {
+                } else {
+                    DEC_INSTR(instr_ptr);
+                }
             }
         } else {
             break;
@@ -104,77 +144,21 @@ void ojit_optimize_params_branch(struct BlockIR* target, struct BlockIR* block, 
 void ojit_optimize_params(struct FunctionIR* func) {
     struct BlockIR* block = func->last_block;
     while (block) {
-        bool was_used[block->num_instrs]; ojit_memset(was_used, false, block->num_instrs);
-#define INDEX(instr_ptr) ((instr_ptr)->base.index)
-
         union TerminatorIR term = block->terminator;
         switch (term.ir_base.id) {
-            case ID_RETURN_IR: {
-                was_used[INDEX(term.ir_return.value)] = true;
-                break;
-            }
             case ID_BRANCH_IR: {
-                ojit_optimize_params_branch(term.ir_branch.target, block, was_used);
+                ojit_optimize_params_branch(term.ir_branch.target, block);
                 break;
             }
             case ID_CBRANCH_IR: {
-                ojit_optimize_params_branch(term.ir_cbranch.true_target, block, was_used);
-                ojit_optimize_params_branch(term.ir_cbranch.false_target, block, was_used);
+                ojit_optimize_params_branch(term.ir_cbranch.true_target, block);
+                ojit_optimize_params_branch(term.ir_cbranch.false_target, block);
                 break;
             }
-            default: {
-                exit(-1);
-            }
-        }
-
-        FOREACH_REV(instr, block->last_instrs, Instruction) {
-            switch (instr->base.id) {
-                case ID_BLOCK_PARAMETER_IR: {
-                    if (!was_used[INDEX(instr)]) {
-                        instr->ir_parameter.var_name = NULL;
-                    }
-                    break;
-                }
-                case ID_INT_IR: {
-                    break;
-                }
-                case ID_GLOBAL_IR: {
-                    break;
-                }
-                case ID_ADD_IR: {
-                    if (was_used[INDEX(instr)]) {
-                        was_used[INDEX(instr->ir_add.a)] = true;
-                        was_used[INDEX(instr->ir_add.b)] = true;
-                    }
-                    break;
-                }
-                case ID_SUB_IR: {
-                    if (was_used[INDEX(instr)]) {
-                        was_used[INDEX(instr->ir_sub.a)] = true;
-                        was_used[INDEX(instr->ir_sub.b)] = true;
-                    }
-                    break;
-                }
-                case ID_CMP_IR: {
-                    if (was_used[INDEX(instr)]) {
-                        was_used[INDEX(instr->ir_sub.a)] = true;
-                        was_used[INDEX(instr->ir_sub.b)] = true;
-                    }
-                    break;
-                }
-                case ID_CALL_IR: {
-                    FOREACH(arg, instr->ir_call.arguments, IRValue) {
-                        was_used[INDEX(*arg)] = true;
-                    }
-                    break;
-                }
-                case ID_INSTR_NONE: {
-                    exit(-1);
-                }
-            }
+            default:
+                break;
         }
         block = block->prev_block;
-#undef INDEX
     }
 }
 

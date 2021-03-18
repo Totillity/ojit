@@ -12,6 +12,9 @@
                                            Instruction* iter_var; \
                                            while (((iter_var) = lalist_iter_next(&iter_##iter_var)) != NULL)
 
+#define INC_INSTR(instr) ((instr)->base.refs++)
+#define DEC_INSTR(instr) ((instr)->base.refs--)
+
 // region Registers
 // Idea: add Spilled-reg to mark values which were spilled onto the stack
 enum Register64 {
@@ -68,6 +71,7 @@ enum InstructionID {
 struct InstructionBase {
     Register64 reg;
     uint32_t index;
+    uint32_t refs;
     enum InstructionID id;
 #ifdef OJIT_READABLE_IR
     bool is_disabled;
