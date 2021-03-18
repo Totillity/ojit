@@ -109,14 +109,16 @@ Register64 get_unused(const bool* registers) {
 Register64 instr_fetch_reg(IRValue instr, Register64 suggested, struct AssemblerState* state) {
     Register64 reg = GET_REG(instr);
     if (!IS_ASSIGNED(reg)) {
-        if (state->used_registers[suggested]) {      // Since NO_REG will always be assigned, we don't need to have a specific check
+        if (instr->base.id == ID_BLOCK_PARAMETER_IR && instr->ir_parameter.entry_reg != NO_REG && !state->used_registers[instr->ir_parameter.entry_reg]) {
+            reg = instr->ir_parameter.entry_reg;
+        } else if (!state->used_registers[suggested]) {      // Since NO_REG will always be assigned, we don't need to have a specific check
+            reg = suggested;
+        } else {
             reg = get_unused(state->used_registers);
             if (reg == NO_REG) {
                 printf("Too many registers used concurrently\n");
                 exit(-1);  // TODO spilled registers
             }
-        } else {
-            reg = suggested;
         }
         instr_assign_reg(instr, reg);
         mark_register(reg, state);
@@ -420,22 +422,20 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
             primary_reg = this_reg;
             secondary_reg = b_register;
         } else {
-            // use a as our primary register which is added into and contains the result
-            // after all, this is a's last (or first) use, so it's safe
-            instr_assign_reg(instr->a, this_reg);
-            mark_register(this_reg, state);
-
-            // now find a register to put b into
-            Register64 new_reg = get_unused(state->used_registers);
-            if (new_reg == NO_REG) {
-                printf("Too many registers used concurrently");
-                exit(-1); // TODO spill
+            a_register = instr_fetch_reg(instr->a, this_reg, state);
+            b_register = instr_fetch_reg(instr->b, this_reg, state);
+            if (a_register == this_reg || b_register == this_reg) {
+                if (a_register == this_reg) {
+                    secondary_reg = b_register;
+                } else {
+                    secondary_reg = a_register;
+                }
+                asm_emit_add_r64_r64(this_reg, secondary_reg, state);
+            } else {
+                asm_emit_add_r64_r64(this_reg, b_register, state);
+                asm_emit_mov_r64_r64(this_reg, a_register, state);
             }
-            instr_assign_reg(instr->b, new_reg);
-            mark_register(new_reg, state);
-
-            primary_reg = this_reg;
-            secondary_reg = new_reg;
+            return;
         }
         asm_emit_add_r64_r64(primary_reg, secondary_reg, state);
         return;
@@ -559,8 +559,12 @@ void __attribute__((always_inline)) emit_block_parameter(Instruction* instructio
 #ifdef OJIT_OPTIMIZATIONS
 #endif
     asm_emit_xchg_r64_r64(state->swap_owner_of[entry_reg], this_reg, state);
+    Register64 original_this_content = state->swap_contents[this_reg];
+    Register64 original_entry_owner = state->swap_owner_of[entry_reg];
+    state->swap_contents[original_entry_owner] = original_this_content;
+    state->swap_owner_of[original_this_content] = original_entry_owner;
     state->swap_owner_of[entry_reg] = this_reg;
-    state->swap_owner_of[this_reg] = entry_reg;
+    state->swap_contents[this_reg] = entry_reg;
 }
 
 void __attribute__((always_inline)) emit_global(Instruction* instruction, struct AssemblerState* state) {
@@ -650,6 +654,7 @@ void __attribute__((always_inline)) emit_call(Instruction* instruction, struct A
     if (push_rax) asm_emit_push_r64(RAX, state);
 }
 // endregion
+
 // region Emit Terminators
 void __attribute__((always_inline)) emit_return(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct ReturnIR* ret = &terminator->ir_return;
@@ -694,7 +699,7 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
     FOREACH_INSTR(instr, target->first_instrs) {
         if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
             struct ParameterIR* param = &instr->ir_parameter;
-            if (!param->var_name) continue;
+            if (param->var_name == NULL) continue;
             IRValue argument;
             hash_table_get(&state->block->variables, STRING_KEY(param->var_name), (uint64_t*) &argument);
 
@@ -707,6 +712,11 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
                     exit(-1);  // TODO oh god not again
                 }
             } else {
+                if (!IS_ASSIGNED(argument_reg) && TYPE_OF(argument) == ID_BLOCK_PARAMETER_IR && argument->ir_parameter.entry_reg != NO_REG) {
+                    argument_reg = argument->ir_parameter.entry_reg;
+                    instr_assign_reg(argument, argument_reg);
+                    mark_register(argument_reg, state);
+                }
                 param_reg = find_target_reg(target_registers, argument_reg, state);
                 target_registers[param_reg] = true;
                 param->entry_reg = param_reg;
