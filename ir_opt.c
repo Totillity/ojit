@@ -80,21 +80,17 @@ void optimize_add_ir(Instruction* instr) {
 
 #define MATCH_ADD(a_type, b_type, func) \
     if (TYPE_OF(instr) == ID_ADD_IR && TYPE_OF(instr->ir_add.a) == a_type && TYPE_OF(instr->ir_add.b) == b_type) { \
-        next_step = func((void*) instr, (void*) instr->ir_add.a, (void*) instr->ir_add.b, &state); \
+        next_step = func((void*) instr, (void*) instr->ir_add.a, (void*) instr->ir_add.b); \
     } else
 
-#define DEFAULT(func) {next_step = func(instr, &state);}
+#define DEFAULT(func) {next_step = func(instr);}
 
-struct FoldState {
-
-};
-
-enum FoldStep fold_add_int_int(struct AddIR* instr, struct IntIR* a, struct IntIR* b, struct FoldState* state) {
+enum FoldStep fold_add_int_int(struct AddIR* instr, struct IntIR* a, struct IntIR* b) {
     replace_instr_int(AS_INSTR(instr), a->constant + b->constant);
     return REPEAT_FOLD;
 }
 
-void fold_communtative_add(struct AddIR* instr, struct AddIR* inner_add, struct IntIR* outer_const, struct IntIR* inner_const, Instruction* val, struct FoldState* state) {
+void fold_communtative_add(struct AddIR* instr, struct AddIR* inner_add, struct IntIR* outer_const, struct IntIR* inner_const, Instruction* val) {
     uint32_t new_const = outer_const->constant + inner_const->constant;
     replace_instr_int((Instruction*) outer_const, new_const);
     replace_instr_add((Instruction*) instr, (Instruction*) outer_const, val);
@@ -102,7 +98,7 @@ void fold_communtative_add(struct AddIR* instr, struct AddIR* inner_add, struct 
     DEC_INSTR(inner_const);
 }
 
-enum FoldStep fold_add_int_add(struct AddIR* instr, struct IntIR* a, struct AddIR* b, struct FoldState* state) {
+enum FoldStep fold_add_int_add(struct AddIR* instr, struct IntIR* a, struct AddIR* b) {
     if (INSTR_REF(b) == 1 && (TYPE_OF(b->a) == ID_INT_IR || TYPE_OF(b->b) == ID_INT_IR)) {
         Instruction* val;
         struct IntIR* inner_const;
@@ -113,13 +109,13 @@ enum FoldStep fold_add_int_add(struct AddIR* instr, struct IntIR* a, struct AddI
             val = b->a;
             inner_const = (struct IntIR*) b->b;
         }
-        fold_communtative_add(instr, b, a, inner_const, val, state);
+        fold_communtative_add(instr, b, a, inner_const, val);
         return REPEAT_FOLD;
     }
     return CONTINUE_FOLD;
 }
 
-enum FoldStep fold_add_add_int(struct AddIR* instr, struct AddIR* a, struct IntIR* b, struct FoldState* state) {
+enum FoldStep fold_add_add_int(struct AddIR* instr, struct AddIR* a, struct IntIR* b) {
     if (INSTR_REF(a) == 1 && (TYPE_OF(a->a) == ID_INT_IR || TYPE_OF(a->b) == ID_INT_IR)) {
         Instruction* val;
         struct IntIR* inner_const;
@@ -130,13 +126,14 @@ enum FoldStep fold_add_add_int(struct AddIR* instr, struct AddIR* a, struct IntI
             val = a->a;
             inner_const = (struct IntIR*) a->b;
         }
-        fold_communtative_add(instr, a, b, inner_const, val, state);
+        fold_communtative_add(instr, a, b, inner_const, val);
         return REPEAT_FOLD;
     }
     return CONTINUE_FOLD;
 }
 
-enum FoldStep fold_default(Instruction* instr, struct FoldState* state) {
+enum FoldStep fold_default(Instruction* instr) {
+    (void) instr;
     return CONTINUE_FOLD;
 }
 
@@ -146,7 +143,6 @@ void ojit_peephole_optimizer(struct BlockIR* block, struct OptState* opt_state) 
     bool was_used[block->num_instrs];
     for (int i = 0; i < block->num_instrs; i++) was_used[i] = false;
 
-    struct FoldState state = {};
     FOREACH(instr, block->first_instrs, Instruction) {
         enum FoldStep next_step = REPEAT_FOLD;
         while (next_step == REPEAT_FOLD) {
