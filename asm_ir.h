@@ -14,6 +14,7 @@
 
 #define INC_INSTR(instr) ((instr)->base.refs++)
 #define DEC_INSTR(instr) ((instr)->base.refs--)
+#define INSTR_REF(instr) ((instr)->base.refs)
 
 // region Registers
 // Idea: add Spilled-reg to mark values which were spilled onto the stack

@@ -94,7 +94,45 @@ enum FoldStep fold_add_int_int(struct AddIR* instr, struct IntIR* a, struct IntI
     return REPEAT_FOLD;
 }
 
+void fold_communtative_add(struct AddIR* instr, struct AddIR* inner_add, struct IntIR* outer_const, struct IntIR* inner_const, Instruction* val, struct FoldState* state) {
+    uint32_t new_const = outer_const->constant + inner_const->constant;
+    replace_instr_int((Instruction*) outer_const, new_const);
+    replace_instr_add((Instruction*) instr, (Instruction*) outer_const, val);
+    DEC_INSTR(inner_add);
+    DEC_INSTR(inner_const);
+}
+
 enum FoldStep fold_add_int_add(struct AddIR* instr, struct IntIR* a, struct AddIR* b, struct FoldState* state) {
+    if (INSTR_REF(b) == 1 && (TYPE_OF(b->a) == ID_INT_IR || TYPE_OF(b->b) == ID_INT_IR)) {
+        Instruction* val;
+        struct IntIR* inner_const;
+        if (TYPE_OF(b->a) == ID_INT_IR) {
+            val = b->b;
+            inner_const = (struct IntIR*) b->a;
+        } else {
+            val = b->a;
+            inner_const = (struct IntIR*) b->b;
+        }
+        fold_communtative_add(instr, b, a, inner_const, val, state);
+        return REPEAT_FOLD;
+    }
+    return CONTINUE_FOLD;
+}
+
+enum FoldStep fold_add_add_int(struct AddIR* instr, struct AddIR* a, struct IntIR* b, struct FoldState* state) {
+    if (INSTR_REF(a) == 1 && (TYPE_OF(a->a) == ID_INT_IR || TYPE_OF(a->b) == ID_INT_IR)) {
+        Instruction* val;
+        struct IntIR* inner_const;
+        if (TYPE_OF(a->a) == ID_INT_IR) {
+            val = a->b;
+            inner_const = (struct IntIR*) a->a;
+        } else {
+            val = a->a;
+            inner_const = (struct IntIR*) a->b;
+        }
+        fold_communtative_add(instr, a, b, inner_const, val, state);
+        return REPEAT_FOLD;
+    }
     return CONTINUE_FOLD;
 }
 
@@ -114,6 +152,7 @@ void ojit_peephole_optimizer(struct BlockIR* block, struct OptState* opt_state) 
         while (next_step == REPEAT_FOLD) {
             MATCH_ADD(ID_INT_IR, ID_INT_IR, fold_add_int_int)
             MATCH_ADD(ID_INT_IR, ID_ADD_IR, fold_add_int_add)
+            MATCH_ADD(ID_ADD_IR, ID_INT_IR, fold_add_add_int)
             DEFAULT(fold_default)
         }
     }
