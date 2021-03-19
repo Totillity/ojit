@@ -9,24 +9,49 @@
 
 
 // region State and Records
-struct OffsetRecord {
-    uint32_t offset_from_end;
+struct MemBlockBase {
+    uint32_t len;
+    bool is_code;
+    union MemBlock* prev_block;
+    union MemBlock* next_block;
+};
+
+struct MemBlockCode {
+    struct MemBlockBase base;
+    uint8_t code[512];
+};
+
+struct MemBlockJump {
+    struct MemBlockBase base;
+    uint8_t short_form[2];
+    uint8_t long_form[6];
     struct BlockIR* target;
+    bool is_short;
+    uint32_t offset_from_end;
+    struct MemBlockJump* next_jump;
+    struct MemBlockJump* prev_jump;
+};
+
+union MemBlock {
+    struct MemBlockBase base;
+    struct MemBlockCode code;
+    struct MemBlockJump jump;
 };
 
 struct BlockRecord {
-    size_t offset;
-    LAList* last_mem_block;
-    LAList* offset_records;
+    uint32_t max_offset_from_end;
+    uint32_t actual_offset_from_end;
+    union MemBlock* end_mem;
 };
 
 struct AssemblerState {
     struct BlockIR* block;
-    uint8_t* front_ptr;
+
+    union MemBlock* curr_mem;
+    union MemBlock* end_mem;
+
     bool used_registers[16];
-    uint32_t block_generated;
-    LAList* newest_mem_block;
-    LAList** offset_records_ptr;
+    uint32_t block_size;
     enum Register64 swap_owner_of[16];
     enum Register64 swap_contents[16];
     MemCtx* ctx;
@@ -34,9 +59,9 @@ struct AssemblerState {
 };
 
 
-void init_asm_state(struct AssemblerState* state, struct BlockIR* block, LAList* init_mem, LAList** offset_records_ptr, struct GetFunctionCallback callback) {
+void init_asm_state(struct AssemblerState* state, struct BlockIR* block, union MemBlock* end_mem, struct GetFunctionCallback callback) {
     state->block = block;
-    state->front_ptr = &init_mem->mem[LALIST_BLOCK_SIZE];
+    state->curr_mem = state->end_mem = end_mem;
 
     // Windows makes you assume the registers RBX, RSI, RDI, RBP, R12-R15 are used
     // Additionally, we assumed RBP, RSP, R12, and R13 are used because it's a pain to use them
@@ -64,16 +89,9 @@ void init_asm_state(struct AssemblerState* state, struct BlockIR* block, LAList*
         state->swap_contents[i] = i;
     }
 
-    state->block_generated = 0;
-    state->offset_records_ptr = offset_records_ptr;
-    state->newest_mem_block = init_mem;
+    state->block_size = 0;
     state->callback.compiled_callback = callback.compiled_callback;
     state->callback.jit_ptr = callback.jit_ptr;
-}
-
-uint32_t offset_from_end(struct AssemblerState* state) {
-    uint32_t block_size = LALIST_BLOCK_SIZE - (state->front_ptr - state->newest_mem_block->mem);
-    return block_size + state->block_generated;
 }
 // endregion
 
@@ -129,14 +147,35 @@ Register64 instr_fetch_reg(IRValue instr, Register64 suggested, struct Assembler
 #define REX(w, r, x, b) ((uint8_t) (0b01000000 | ((w) << 3) | ((r) << 2) | ((x) << 1) | ((b))))
 #define MODRM(mod, reg, rm) (((mod) << 6) | ((reg) << 3) | (rm))
 
+union MemBlock* create_mem_block_code(union MemBlock* prev_block, union MemBlock* next_block, MemCtx* ctx) {
+    struct MemBlockCode* code = &((union MemBlock*) ojit_alloc(ctx, sizeof(union MemBlock)))->code;
+    code->base.len = 0;
+    code->base.is_code = true;
+    code->base.next_block = next_block;
+    code->base.prev_block = prev_block;
+    if (next_block) next_block->base.prev_block = (union MemBlock*) code;
+    if (prev_block) prev_block->base.next_block = (union MemBlock*) code;
+    return (union MemBlock*) code;
+}
+
+union MemBlock* create_mem_block_jump(union MemBlock* prev_block, union MemBlock* next_block, MemCtx* ctx) {
+    struct MemBlockJump* jump = &((union MemBlock*) ojit_alloc(ctx, sizeof(union MemBlock)))->jump;
+    jump->base.len = 0;
+    jump->base.is_code = false;
+    jump->base.next_block = next_block;
+    jump->base.prev_block = prev_block;
+    if (next_block) next_block->base.prev_block = (union MemBlock*) jump;
+    if (prev_block) prev_block->base.next_block = (union MemBlock*) jump;
+    return (union MemBlock*) jump;
+}
+
 void __attribute__((always_inline)) asm_emit_byte(uint8_t byte, struct AssemblerState* state) {
-    if (state->front_ptr == state->newest_mem_block->mem) {
-        state->newest_mem_block->len = LALIST_BLOCK_SIZE;   // TODO we can optimize this
-        state->block_generated += state->newest_mem_block->len;
-        state->newest_mem_block = lalist_grow(state->ctx, NULL, state->newest_mem_block);
-        state->front_ptr = &state->newest_mem_block->mem[LALIST_BLOCK_SIZE];
+    if (state->curr_mem->base.len >= 512) {
+        state->curr_mem = create_mem_block_code(NULL, state->curr_mem, state->ctx);
     }
-    *(--state->front_ptr) = byte;
+    state->curr_mem->base.len++;
+    state->block_size++;
+    state->curr_mem->code.code[512-state->curr_mem->base.len] = byte;
 }
 
 void __attribute__((always_inline)) asm_emit_int8(uint8_t constant, struct AssemblerState* state) {
@@ -330,12 +369,24 @@ void __attribute__((always_inline)) asm_emit_jmp(struct BlockIR* target, struct 
 #ifdef OJIT_OPTIMIZATIONS
     if (target->prev_block == state->block) return;
 #endif
-    struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
-    record_ptr->offset_from_end = offset_from_end(state);
-    record_ptr->target = target;
+    struct MemBlockJump* jump = (struct MemBlockJump*) create_mem_block_jump(NULL, state->curr_mem, state->ctx);
+    jump->target = target;
+    jump->base.len = 5;
+    jump->long_form[0] = 0x00;
+    jump->long_form[1] = 0xE9;
+    jump->long_form[2] = 0xEF;
+    jump->long_form[3] = 0xBE;
+    jump->long_form[4] = 0xAD;
+    jump->long_form[5] = 0xDE;
 
-    asm_emit_int32(0xEFBEADDE, state);
-    asm_emit_byte(0xE9, state);
+    jump->short_form[0] = 0xEB;
+    jump->short_form[1] = 0xFF;
+    jump->next_jump = NULL;
+    jump->prev_jump = NULL;
+
+    state->block_size += 5;
+
+    state->curr_mem = create_mem_block_code(NULL, (union MemBlock*) jump, state->ctx);
 }
 
 void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, struct BlockIR* target, struct AssemblerState* state) {
@@ -343,13 +394,25 @@ void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, struct Bl
 #ifdef OJIT_OPTIMIZATIONS
     if (target->prev_block == state->block) return;
 #endif
-    struct OffsetRecord* record_ptr = lalist_grow_add(state->offset_records_ptr, sizeof(struct OffsetRecord));
-    record_ptr->offset_from_end = offset_from_end(state);
-    record_ptr->target = target;
+    struct MemBlockJump* jump = (struct MemBlockJump*) create_mem_block_jump(NULL, state->curr_mem, state->ctx);
+    jump->target = target;
+    jump->base.len = 6;
+    jump->long_form[0] = 0x0F;
+    jump->long_form[1] = cond;
+    jump->long_form[2] = 0xEF;
+    jump->long_form[3] = 0xBE;
+    jump->long_form[4] = 0xAD;
+    jump->long_form[5] = 0xDE;
 
-    asm_emit_int32(0xEFBEADDE, state);
-    asm_emit_byte(cond, state);
-    asm_emit_byte(0x0F, state);
+    jump->short_form[0] = cond - 0x10;
+    jump->short_form[1] = 0xFF;
+
+    jump->next_jump = NULL;
+    jump->prev_jump = NULL;
+
+    state->block_size += 6;
+
+    state->curr_mem = create_mem_block_code(NULL, (union MemBlock*) jump, state->ctx);
 }
 // endregion
 
@@ -935,6 +998,8 @@ void assign_function_parameters(struct FunctionIR* func) {
 }
 
 
+#define GET_RECORD(block) ((struct BlockRecord*) (block)->data)
+
 struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* compiler_mem, struct GetFunctionCallback callback) {
 #ifdef OJIT_OPTIMIZATIONS
     ojit_optimize_func(func, callback);
@@ -950,15 +1015,9 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 
     struct BlockIR* block = func->first_block;
     while (block) {
-        LAList* init_mem = lalist_new(compiler_mem);
+        union MemBlock* end_mem = create_mem_block_code(NULL, NULL, compiler_mem);
 
-        struct BlockRecord* record = ojit_alloc(compiler_mem, sizeof(struct BlockRecord));
-        record->offset = generated_size;
-        record->last_mem_block = init_mem;
-        record->offset_records = lalist_new(compiler_mem);
-        block->data = record;
-
-        init_asm_state(&state, block, init_mem, &record->offset_records, callback);
+        init_asm_state(&state, block, end_mem, callback);
 
         emit_terminator(&block->terminator, &state);
 
@@ -972,44 +1031,86 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
             instr = lalist_iter_prev(&instr_iter);
             k += 1;
         }
-        state.newest_mem_block->len = LALIST_BLOCK_SIZE - (state.front_ptr - state.newest_mem_block->mem);
-        generated_size += offset_from_end(&state);
+
+        generated_size += state.block_size;
+
+        struct BlockRecord* record = ojit_alloc(compiler_mem, sizeof(struct BlockRecord));
+        record->end_mem = end_mem;
+        record->max_offset_from_end = generated_size;
+        record->actual_offset_from_end = 0;
+        block->data = record;
 
         block = block->next_block;
     }
 
     uint8_t* func_mem = ojit_alloc(compiler_mem, generated_size);
-    uint8_t* write_ptr = func_mem + generated_size;
+    uint8_t* end_ptr = func_mem + generated_size;
+    uint8_t* write_ptr = end_ptr;
 
+    struct MemBlockJump* last_visited_jump = NULL;
     block = func->last_block;
     while (block) {
-        struct BlockRecord record = *(struct BlockRecord*) block->data;
-        LAList* curr_mem_block = record.last_mem_block;
-        uint8_t* start_ptr = write_ptr;
+        struct BlockRecord* record = GET_RECORD(block);
+        union MemBlock* curr_mem_block = record->end_mem;
         while (curr_mem_block) {
-            size_t mem_block_size = curr_mem_block->len;
-            write_ptr -= mem_block_size;
-            ojit_memcpy(write_ptr, curr_mem_block->mem + (LALIST_BLOCK_SIZE - mem_block_size), mem_block_size);
-
-            curr_mem_block = curr_mem_block->prev;
+            if (curr_mem_block->base.is_code) {
+                write_ptr -= curr_mem_block->base.len;
+                ojit_memcpy(write_ptr, curr_mem_block->code.code + (512 - curr_mem_block->base.len), curr_mem_block->base.len);
+            } else {
+                struct BlockRecord* target_record = GET_RECORD(curr_mem_block->jump.target);
+                uint32_t curr_offset = end_ptr - write_ptr;
+                int32_t jump_dist;
+                if (target_record->actual_offset_from_end != 0) { // TODO account for the extra bytes
+                    jump_dist = target_record->actual_offset_from_end - curr_offset;
+                } else {
+                    jump_dist = target_record->max_offset_from_end - curr_offset;
+                }
+#ifdef OJIT_OPTIMIZATIONS
+                if (jump_dist <= 256 && jump_dist >= -256) {
+                    curr_mem_block->jump.is_short = true;
+                    write_ptr -= 2;
+                    ojit_memcpy(write_ptr, curr_mem_block->jump.short_form, 2);
+                } else {
+                    curr_mem_block->jump.is_short = false;
+                    write_ptr -= curr_mem_block->base.len;
+                    ojit_memcpy(write_ptr, curr_mem_block->jump.long_form + (6 - curr_mem_block->jump.base.len), curr_mem_block->base.len);
+                }
+#else
+                curr_mem_block->jump.is_short = false;
+                write_ptr -= curr_mem_block->base.len;
+                ojit_memcpy(write_ptr, curr_mem_block->jump.long_form + (6 - curr_mem_block->jump.base.len), curr_mem_block->base.len);
+#endif
+                curr_mem_block->jump.offset_from_end = end_ptr - write_ptr;
+                curr_mem_block->jump.next_jump = last_visited_jump;
+                if (last_visited_jump) last_visited_jump->prev_jump = (struct MemBlockJump*) curr_mem_block;
+                last_visited_jump = (struct MemBlockJump*) curr_mem_block;
+            }
+            curr_mem_block = curr_mem_block->base.prev_block;
         }
-
-        int m = 0;
-        FOREACH(offset_record, record.offset_records, struct OffsetRecord) {
-            uint8_t* offset_ptr = (start_ptr - offset_record->offset_from_end);
-            struct BlockRecord target_record = *((struct BlockRecord*) offset_record->target->data);
-            uintptr_t offset = (func_mem + target_record.offset) - offset_ptr;
-            *(offset_ptr - 4) = (uint8_t) (offset >> 0) & 0xFF;
-            *(offset_ptr - 3) = (uint8_t) (offset >> 8) & 0xFF;
-            *(offset_ptr - 2) = (uint8_t) (offset >> 16) & 0xFF;
-            *(offset_ptr - 1) = (uint8_t) (offset >> 24) & 0xFF;
-            m++;
-        }
-
+        record->actual_offset_from_end = end_ptr - write_ptr;
         block = block->prev_block;
     }
 
-    return (struct CompiledFunction) {func_mem, generated_size};
+    struct MemBlockJump* curr_jump = last_visited_jump;
+    while (curr_jump) {
+        if (curr_jump->is_short) {
+            uint8_t* ptr = end_ptr - curr_jump->offset_from_end + 2;
+            uint32_t jump_dist = (curr_jump->offset_from_end - 2) - GET_RECORD(curr_jump->target)->actual_offset_from_end;
+            *(ptr - 1) = jump_dist & 0xFF;
+        } else {
+            uint8_t* ptr = end_ptr - curr_jump->offset_from_end + curr_jump->base.len;
+            uint32_t jump_dist = (curr_jump->offset_from_end - curr_jump->base.len) - GET_RECORD(curr_jump->target)->actual_offset_from_end;
+            *(ptr - 1) = (jump_dist >> 24) & 0xFF;
+            *(ptr - 2) = (jump_dist >> 16) & 0xFF;
+            *(ptr - 3) = (jump_dist >> 8) & 0xFF;
+            *(ptr - 4) = (jump_dist >> 0) & 0xFF;
+        }
+        curr_jump = curr_jump->next_jump;
+    }
+
+    uint32_t final_size = end_ptr - write_ptr;
+
+    return (struct CompiledFunction) {write_ptr, final_size};
 }
 
 #ifdef WIN32
