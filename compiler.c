@@ -178,6 +178,12 @@ void __attribute__((always_inline)) asm_emit_xchg_r64_r64(Register64 dest, Regis
     asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
 }
 
+void __attribute__((always_inline)) asm_emit_xor_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
+    asm_emit_byte(MODRM(0b11, source & 0b0111, dest & 0b0111), state);
+    asm_emit_byte(0x33, state);
+    asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
+}
+
 void __attribute__((always_inline)) asm_emit_mov_r64_r64(Register64 dest, Register64 source, struct AssemblerState* state) {
 #ifdef OJIT_OPTIMIZATIONS
     if (dest == source) return;
@@ -189,14 +195,10 @@ void __attribute__((always_inline)) asm_emit_mov_r64_r64(Register64 dest, Regist
 
 void __attribute__((always_inline)) asm_emit_mov_r64_i64(Register64 dest, uint64_t constant, struct AssemblerState* state) {
 #ifdef OJIT_OPTIMIZATIONS
-//    if (constant <= UINT8_MAX) {
-//        asm_emit_int8(constant, state);
-//        asm_emit_byte(0xB0 + (dest & 0b0111), state);
-//        if (dest & 0b1000) {
-//            asm_emit_byte(REX(0b0, 0b0, 0b0, dest >> 3 & 0b0001), state);
-//        }
-//        return;
-//    }
+    if (constant == 0) {
+        asm_emit_xor_r64_r64(dest, dest, state);
+        return;
+    }
     if (constant <= UINT32_MAX) {
         asm_emit_int32(constant, state);
         asm_emit_byte(0xB8 + (dest & 0b0111), state);
