@@ -233,6 +233,8 @@ Token lexer_emit_ident(struct Lexer* lexer) {
         type = TOKEN_LET;
     } else if (string_equal(text, lexer->keywords[TOKEN_IF])) {
         type = TOKEN_IF;
+    } else if (string_equal(text, lexer->keywords[TOKEN_WHILE])) {
+        type = TOKEN_WHILE;
     } else if (string_equal(text, lexer->keywords[TOKEN_ELSE])) {
         type = TOKEN_ELSE;
     } else {
@@ -337,6 +339,7 @@ struct Lexer* create_lexer(struct StringTable* table_ptr, String source, MemCtx*
     lexer->keywords[TOKEN_RETURN] = string_table_add(lexer->table_ptr, "return", 6);
     lexer->keywords[TOKEN_LET] = string_table_add(lexer->table_ptr, "let", 3);
     lexer->keywords[TOKEN_IF] = string_table_add(lexer->table_ptr, "if", 2);
+    lexer->keywords[TOKEN_WHILE] = string_table_add(lexer->table_ptr, "while", 5);
     lexer->keywords[TOKEN_ELSE] = string_table_add(lexer->table_ptr, "else", 4);
 
     lexer->source = source;
@@ -380,6 +383,7 @@ Token parser_expect(Parser* parser, enum TokenType type) {
         ojit_build_error_chars(", got ");
         ojit_build_error_chars(get_token_name(token.type));
         ojit_error();
+        ojit_exit(0);
         exit(0);
     }
 }
@@ -563,6 +567,28 @@ IRValue parse_expression(Parser* parser) {
 // region Parse Statement
 void parse_statement(Parser* parser);
 
+void parse_while(Parser* parser) {
+    parser_expect(parser, TOKEN_WHILE);
+
+    struct BlockIR* cond_block = builder_add_block(parser->builder, parser->builder->current_block);
+    builder_Branch(parser->builder, cond_block);
+
+    builder_enter_block(parser->builder, cond_block);
+    parser_expect(parser, TOKEN_LEFT_PAREN);
+    IRValue cond = parse_expression(parser);
+    parser_expect(parser, TOKEN_RIGHT_PAREN);
+
+    struct BlockIR* do_block = builder_add_block(parser->builder, parser->builder->current_block);
+    struct BlockIR* after_block = builder_add_block(parser->builder, do_block);
+    builder_CBranch(parser->builder, cond, do_block, after_block);
+
+    builder_enter_block(parser->builder, do_block);
+    parse_statement(parser);
+    builder_Branch(parser->builder, cond_block);
+
+    builder_enter_block(parser->builder, after_block);
+}
+
 void parse_if(Parser* parser) {
     parser_expect(parser, TOKEN_IF);
     parser_expect(parser, TOKEN_LEFT_PAREN);
@@ -630,6 +656,7 @@ void parse_statement(Parser* parser) {
         case TOKEN_RETURN: parse_return(parser); break;
         case TOKEN_LET: parse_let(parser); break;
         case TOKEN_IF: parse_if(parser); break;
+        case TOKEN_WHILE: parse_while(parser); break;
         case TOKEN_LEFT_BRACE: parse_block(parser); break;
         default: parse_expression(parser); parser_expect(parser, TOKEN_SEMICOLON); break;
     }

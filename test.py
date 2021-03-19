@@ -2,13 +2,10 @@ import time
 
 
 def main(a1):
-    if a1 < 3:
-        a2 = a1 + 1
-        i = a2 + 4
-    else:
-        a2 = a1 - 2
-        i = a2 - 2
-    a3  = a2  +  i
+    a2 = 0
+    while a2 < a1:
+        a2 = a2 + 1
+    a3  = a2  +  3
     a4  = a3  +  4
     a5  = a4  +  5
     a6  = a5  +  6
