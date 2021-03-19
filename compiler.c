@@ -84,13 +84,11 @@ uint32_t offset_from_end(struct AssemblerState* state) {
 
 void __attribute__((always_inline)) mark_register(Register64 reg, struct AssemblerState* state) {
     OJIT_ASSERT(state->used_registers[reg] == false, "Attempted to mark a register which is already marked");
-//    assert(state->used_registers[reg] == false);
     state->used_registers[reg] = true;
 }
 
 void __attribute__((always_inline)) unmark_register(Register64 reg, struct AssemblerState* state) {
     OJIT_ASSERT(state->used_registers[reg] == true, "Attempted to unmark a register which is already unmarked");
-//    assert(state->used_registers[reg] == true);
     state->used_registers[reg] = false;
 }
 
@@ -1005,7 +1003,6 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
             *(offset_ptr - 3) = (uint8_t) (offset >> 8) & 0xFF;
             *(offset_ptr - 2) = (uint8_t) (offset >> 16) & 0xFF;
             *(offset_ptr - 1) = (uint8_t) (offset >> 24) & 0xFF;
-//            printf("Wrote %llu for %i at %p\n", offset, b_i, offset_ptr);
             m++;
         }
 

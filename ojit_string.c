@@ -50,8 +50,6 @@ String string_table_add(struct StringTable* table, char* ptr, uint32_t length) {
     }
 }
 
-
-
 String read_file(struct StringTable* table, char* path) {
     FILE* file = fopen(path, "r"); // TODO check for null
     fseek(file, 0L, SEEK_END);
@@ -63,6 +61,5 @@ String read_file(struct StringTable* table, char* path) {
     size_t amount_read = fread(buf, sizeof(char), file_size, file);
     String s = string_table_add(table, buf, amount_read);
     fclose(file);
-//    free(buf);
     return s;
 }
