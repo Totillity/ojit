@@ -390,7 +390,6 @@ void __attribute__((always_inline)) asm_emit_jmp(struct BlockIR* target, struct 
 }
 
 void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, struct BlockIR* target, struct AssemblerState* state) {
-    // TODO: If I subtract 0x10 from the cond-code, I can make the offsets 1 byte
 #ifdef OJIT_OPTIMIZATIONS
     if (target->prev_block == state->block) return;
 #endif
