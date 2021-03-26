@@ -28,8 +28,10 @@ uint32_t hash_bytes(char* char_p, uint32_t length);
 uint32_t hash_ptr(void* ptr);
 
 void init_hash_table(struct HashTable* table, MemCtx* mem);
+struct HashTable* new_hash_table(MemCtx* mem);
 bool hash_table_insert(struct HashTable* table, HashKey key, uint64_t value);
 bool hash_table_set(struct HashTable* table, HashKey key, uint64_t value);
+void* hash_table_get_ptr(struct HashTable* table, HashKey key);
 bool hash_table_get(struct HashTable* table, HashKey key, uint64_t* value_ptr);
 bool hash_table_has(struct HashTable* table, HashKey key);
 bool hash_table_remove(struct HashTable* table, HashKey key, TableEntry* next);

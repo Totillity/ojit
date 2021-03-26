@@ -1,17 +1,6 @@
 def main(a1) {
-    let a2 = 0;
-    while (a2 < a1) {
-        a2 = a2 + 1;
-    }
-    let a3  = a2  +  3;
-    let a4  = a3  +  4;
-    let a5  = a4  +  5;
-    let a6  = a5  +  6;
-    let a7  = a6  +  7;
-    let a8  = a7  +  8;
-    let a9  = a8  +  9;
-    let a10 = a9  + 10;
-    let a11 = a10 + 11;
-    let a12 = a11 + 12;
-    return    a12 + 13;
+    let obj = {};
+    obj.a1 = a1;
+    obj.a1 = obj.a1 + 3;
+    return obj.a1;
 }

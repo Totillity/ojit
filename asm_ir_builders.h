@@ -29,6 +29,10 @@ IRValue builder_Add(IRBuilder* builder, IRValue a, IRValue b);
 IRValue builder_Sub(IRBuilder* builder, IRValue a, IRValue b);
 IRValue builder_Cmp(IRBuilder* builder, enum Comparison cmp, IRValue a, IRValue b);
 IRValue builder_Global(IRBuilder* builder, String name);
+IRValue builder_GetAttrIR(IRBuilder* builder, Instruction* obj, String attr);
+IRValue builder_GetLocIR(IRBuilder* builder, Instruction* loc);
+IRValue builder_SetLocIR(IRBuilder* builder, Instruction* loc, Instruction* value);
+IRValue builder_NewObjectIR(IRBuilder* builder);
 IRValue builder_Call(IRBuilder* builder, IRValue callee);
 void builder_Call_argument(IRValue call_instr, IRValue argument);
 

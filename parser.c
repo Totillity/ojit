@@ -350,12 +350,28 @@ struct Lexer* create_lexer(struct StringTable* table_ptr, String source, MemCtx*
     return lexer;
 }
 
+enum LValueType {
+    LVALUE_NONE,
+    LVALUE_VAR,
+    LVALUE_ATTR,
+};
+
+union LValue {
+    String var_name;
+    IRValue loc;
+};
+
+struct LValueState {
+    union LValue lvalue;
+    enum LValueType lvalue_type;
+};
 
 typedef struct s_Parser {
     struct Lexer* lexer;
     IRBuilder* builder;
     struct HashTable* func_table;
     MemCtx* ir_mem;
+    struct LValueState lvalue_state;
 } Parser;
 
 
@@ -388,55 +404,62 @@ Token parser_expect(Parser* parser, enum TokenType type) {
     }
 }
 
+bool is_lvalue(Parser* parser) {
+    return parser->lvalue_state.lvalue_type != LVALUE_NONE;
+}
 
-typedef struct {
-    bool also_lvalue;
-    IRValue rvalue;
-    String lvalue;
-} ExpressionValue;
+struct LValueState new_lvalue_state(Parser* parser) {
+    struct LValueState old_state = parser->lvalue_state;
+    parser->lvalue_state.lvalue_type = LVALUE_NONE;
+    return old_state;
+}
 
-String get_lvalue(ExpressionValue value) {
-    if (value.also_lvalue) {
-        return value.lvalue;
+void restore_lvalue_state(Parser* parser, struct LValueState state) {
+    parser->lvalue_state = state;
+}
+
+void add_lvalue(Parser* parser, enum LValueType type, union LValue lvalue) {
+    parser->lvalue_state.lvalue_type = type;
+    parser->lvalue_state.lvalue = lvalue;
+}
+
+IRValue lvalue_set(Parser* parser, IRValue to_value) {
+    if (parser->lvalue_state.lvalue_type == LVALUE_VAR) {
+        String var = parser->lvalue_state.lvalue.var_name;
+        return builder_set_variable(parser->builder, var, to_value);
+    } else if (parser->lvalue_state.lvalue_type == LVALUE_ATTR) {
+        IRValue loc = parser->lvalue_state.lvalue.loc;
+        return builder_SetLocIR(parser->builder, loc, to_value);
     } else {
         ojit_new_error();
-        switch (value.rvalue->base.id) {
-            case ID_GLOBAL_IR:
-                ojit_build_error_chars("Cannot assign to global values");
-                break;
-            default:
-                ojit_build_error_chars("Attempted to access the lvalue of something which doesn't have one");
-                break;
-        }
+//        switch (value.rvalue->base.id) {
+//            case ID_GLOBAL_IR:
+//                ojit_build_error_chars("Cannot assign to global values such as functions.");
+//                break;
+//            default:
+//                ojit_build_error_chars("Attempted to access the lvalue of something which doesn't have one.");
+//                break;
+//        }
+        ojit_build_error_chars("Attempted to access the lvalue of something which doesn't have one.");
         ojit_error();
         exit(0);
     }
 }
-#ifdef SKIP_LVALUE_CHECK
-#define LVALUE(v) ((v).lvalue)
-#else
-#define LVALUE(v) (get_lvalue(v))
-#endif
-
-#define RVALUE(v) ((v).rvalue)
-
-#define WRAP_LVALUE(l, r) ((ExpressionValue) {.also_lvalue = true, .lvalue = (l), .rvalue = (r)})
-#define WRAP_RVALUE(v) ((ExpressionValue) {.also_lvalue = false, .rvalue = (v)})
-
 
 // region Parse Expression
 IRValue parse_expression(Parser* parser);
 
-ExpressionValue parse_terminal(Parser* parser, bool lvalue) {
+IRValue parse_terminal(Parser* parser) {
     Token curr = parser_peek(parser);
     switch (curr.type) {
         case TOKEN_IDENT: {
             parser_expect(parser, TOKEN_IDENT);
             IRValue value;
             if (hash_table_get(&parser->builder->current_block->variables, STRING_KEY(curr.text), (uint64_t*) &value)) {
-                return lvalue ? WRAP_LVALUE(curr.text, value) : WRAP_RVALUE(value);
+                add_lvalue(parser, LVALUE_VAR, (union LValue) {.var_name = curr.text});
+                return value;
             } else {
-                return WRAP_RVALUE(builder_Global(parser->builder, curr.text));
+                return builder_Global(parser->builder, curr.text);
             }
         }
         case TOKEN_NUMBER: {
@@ -447,13 +470,19 @@ ExpressionValue parse_terminal(Parser* parser, bool lvalue) {
                 num += curr.text->start_ptr[i] - 48;
             }
             IRValue value = builder_Int(parser->builder, num);
-            return WRAP_RVALUE(value);
+            return value;
         }
         case TOKEN_LEFT_PAREN: {
             parser_expect(parser, TOKEN_LEFT_PAREN);
             IRValue expr = parse_expression(parser);
             parser_expect(parser, TOKEN_RIGHT_PAREN);
-            return WRAP_RVALUE(expr);
+            return expr;
+        }
+        case TOKEN_LEFT_BRACE: {
+            parser_expect(parser, TOKEN_LEFT_BRACE);
+            IRValue expr = builder_NewObjectIR(parser->builder);
+            parser_expect(parser, TOKEN_RIGHT_BRACE);
+            return expr;
         }
         default: {
             ojit_new_error();
@@ -466,26 +495,44 @@ ExpressionValue parse_terminal(Parser* parser, bool lvalue) {
 }
 
 
-ExpressionValue parse_call(Parser* parser, bool lvalue) {
-    ExpressionValue expr = parse_terminal(parser, lvalue);
+IRValue parse_function_call(Parser* parser, IRValue expr) {
+    expr = builder_Call(parser->builder, expr);
+    parser_expect(parser, TOKEN_LEFT_PAREN);
+    while (!parser_peek_is(parser, TOKEN_RIGHT_PAREN)) {
+        IRValue arg = parse_expression(parser);
+        builder_Call_argument(expr, arg);
+        if (parser_peek_is(parser, TOKEN_COMMA)) {
+            parser_expect(parser, TOKEN_COMMA);
+            continue;
+        } else {
+            break;
+        }
+    }
+    parser_expect(parser, TOKEN_RIGHT_PAREN);
+    return expr;
+}
+
+
+IRValue parse_get_attribute(Parser* parser, IRValue expr) {
+    parser_expect(parser, TOKEN_DOT);
+    Token attr = parser_expect(parser, TOKEN_IDENT);
+    IRValue loc = builder_GetAttrIR(parser->builder, expr, attr.text);
+    add_lvalue(parser, LVALUE_ATTR, (union LValue) {.loc = loc});
+    return builder_GetLocIR(parser->builder, loc);
+}
+
+
+IRValue parse_call(Parser* parser) {
+    IRValue expr = parse_terminal(parser);
 
     while (true) {
         Token curr = parser_peek(parser);
         switch (curr.type) {
             case TOKEN_LEFT_PAREN:
-                expr = WRAP_RVALUE(builder_Call(parser->builder, RVALUE(expr)));
-                parser_expect(parser, TOKEN_LEFT_PAREN);
-                while (!parser_peek_is(parser, TOKEN_RIGHT_PAREN)) {
-                    IRValue arg = parse_expression(parser);
-                    builder_Call_argument(RVALUE(expr), arg);
-                    if (parser_peek_is(parser, TOKEN_COMMA)) {
-                        parser_expect(parser, TOKEN_COMMA);
-                        continue;
-                    } else {
-                        break;
-                    }
-                }
-                parser_expect(parser, TOKEN_RIGHT_PAREN);
+                expr = parse_function_call(parser, expr);
+                break;
+            case TOKEN_DOT:
+                expr = parse_get_attribute(parser, expr);
                 break;
             default:
                 goto at_end;
@@ -496,8 +543,8 @@ ExpressionValue parse_call(Parser* parser, bool lvalue) {
 }
 
 
-ExpressionValue parse_addition(Parser* parser, bool lvalue) {
-    ExpressionValue expr = parse_call(parser, lvalue);
+IRValue parse_addition(Parser* parser) {
+    IRValue expr = parse_call(parser);
 
     IRValue right;
     while (true) {
@@ -505,13 +552,13 @@ ExpressionValue parse_addition(Parser* parser, bool lvalue) {
         switch (curr.type) {
             case TOKEN_PLUS:
                 parser_expect(parser, TOKEN_PLUS);
-                right = RVALUE(parse_call(parser, false));
-                expr = WRAP_RVALUE(builder_Add(parser->builder, RVALUE(expr), right));
+                right = parse_call(parser);
+                expr = builder_Add(parser->builder, expr, right);
                 break;
             case TOKEN_MINUS:
                 parser_expect(parser, TOKEN_MINUS);
-                right = RVALUE(parse_call(parser, false));
-                expr = WRAP_RVALUE(builder_Sub(parser->builder, RVALUE(expr), right));
+                right = parse_call(parser);
+                expr = builder_Sub(parser->builder, expr, right);
                 break;
             default:
                 goto at_end;
@@ -522,8 +569,8 @@ ExpressionValue parse_addition(Parser* parser, bool lvalue) {
     return expr;
 }
 
-ExpressionValue parse_compare(Parser* parser, bool lvalue) {
-    ExpressionValue expr = parse_addition(parser, lvalue);
+IRValue parse_compare(Parser* parser) {
+    IRValue expr = parse_addition(parser);
 
     IRValue right;
     while (true) {
@@ -535,32 +582,30 @@ ExpressionValue parse_compare(Parser* parser, bool lvalue) {
             default: goto at_end;
         }
         parser_advance(parser);
-        right = RVALUE(parse_addition(parser, false));
-        expr = WRAP_RVALUE(builder_Cmp(parser->builder, cmp, RVALUE(expr), right));
+        right = parse_addition(parser);
+        expr = builder_Cmp(parser->builder, cmp, expr, right);
     }
     at_end:
 
     return expr;
 }
 
-
-ExpressionValue parse_assign(Parser* parser) {
-    ExpressionValue expr = parse_compare(parser, true);
-//    ExpressionValue expr = parse_addition(parser, true);
+IRValue parse_assign(Parser* parser) {
+    struct LValueState old_state = new_lvalue_state(parser);
+    IRValue expr = parse_compare(parser);
     if (parser_peek_is(parser, TOKEN_EQUAL)) {
         parser_expect(parser, TOKEN_EQUAL);
-        String var = LVALUE(expr);  // TODO add check here so it doesn't just fail
-        IRValue right = RVALUE(parse_assign(parser));
-        builder_set_variable(parser->builder, var, right);
-        return WRAP_RVALUE(right);
-    } else {
-        return WRAP_RVALUE(RVALUE(expr));
+        // TODO add check here so it doesn't just fail
+        IRValue right = parse_assign(parser);
+        expr = lvalue_set(parser, right);
     }
+    restore_lvalue_state(parser, old_state);
+    return expr;
 }
 
 
 IRValue parse_expression(Parser* parser) {
-    return RVALUE(parse_assign(parser));
+    return parse_assign(parser);
 }
 // endregion
 
@@ -722,6 +767,8 @@ Parser* create_parser(String source, struct StringTable* string_table, struct Ha
     parser->builder = NULL;
     parser->func_table = function_table;
     parser->ir_mem = ir_mem;
+
+    parser->lvalue_state.lvalue_type = LVALUE_NONE;
     return parser;
 }
 

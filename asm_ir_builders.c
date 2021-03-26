@@ -172,6 +172,40 @@ IRValue builder_Global(IRBuilder* builder, String name) {
     instr->base.id = ID_GLOBAL_IR;
     return (Instruction*) instr;
 }
+
+IRValue builder_GetAttrIR(IRBuilder* builder, Instruction* obj, String attr) {
+    struct GetAttrIR* instr = &builder_add_instr(builder)->ir_get_attr;
+    instr->obj = obj;
+    instr->attr = attr;
+    instr->base.id = ID_GET_ATTR_IR;
+    INC_INSTR(obj);
+    return (Instruction*) instr;
+}
+
+IRValue builder_GetLocIR(IRBuilder* builder, Instruction* loc) {
+    struct GetLocIR* instr = &builder_add_instr(builder)->ir_get_loc;
+    instr->loc = loc;
+    instr->base.id = ID_GET_LOC_IR;
+    INC_INSTR(loc);
+    return (Instruction*) instr;
+}
+
+IRValue builder_SetLocIR(IRBuilder* builder, Instruction* loc, Instruction* value) {
+    struct SetLocIR* instr = &builder_add_instr(builder)->ir_set_loc;
+    instr->loc = loc;
+    instr->value = value;
+    instr->base.id = ID_SET_LOC_IR;
+    instr->base.refs = 1;
+    INC_INSTR(loc);
+    INC_INSTR(value);
+    return (Instruction*) instr;
+}
+
+IRValue builder_NewObjectIR(IRBuilder* builder) {
+    struct NewObjectIR* instr = &builder_add_instr(builder)->ir_new_object;
+    instr->base.id = ID_NEW_OBJECT_IR;
+    return (IRValue) instr;
+}
 // endregion
 
 void builder_Return(IRBuilder* builder, IRValue value) {

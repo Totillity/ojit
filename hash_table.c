@@ -35,6 +35,13 @@ void init_hash_table(struct HashTable* table, MemCtx* mem) {
 }
 
 
+struct HashTable* new_hash_table(MemCtx* mem) {
+    struct HashTable* table = ojit_alloc(mem, sizeof(struct HashTable));
+    init_hash_table(table, mem);
+    return table;
+}
+
+
 bool hash_table_insert(struct HashTable* table, HashKey key, uint64_t value) {
     size_t insert_index = key.hash % (LALIST_BLOCK_SIZE / sizeof(TableEntry));
 
@@ -87,6 +94,32 @@ bool hash_table_set(struct HashTable* table, HashKey key, uint64_t value) {
     }
 }
 
+
+void* hash_table_get_ptr(struct HashTable* table, HashKey key) {
+    size_t insert_index = key.hash % (LALIST_BLOCK_SIZE / sizeof(TableEntry));
+
+    LAList* curr_block = table->first_block;
+    while (true) {
+        TableEntry* existing = lalist_get(curr_block, sizeof(TableEntry), insert_index);
+        if (existing->key.cmp_obj) {
+            if (key.cmp_obj == existing->key.cmp_obj) {
+                return &existing->value;
+            }
+            if (curr_block->next) {
+                curr_block = curr_block->next;
+            } else {
+                curr_block = lalist_grow(table->mem, curr_block, NULL);
+            }
+        } else {
+            existing->prev = table->last_entry;
+            table->last_entry = existing;
+            existing->key = key;
+            existing->value = (uint64_t) NULL;
+            table->len++;
+            return &existing->value;
+        }
+    }
+}
 
 bool hash_table_get(struct HashTable* table, HashKey key, uint64_t* value_ptr) {
     size_t insert_index = key.hash % (LALIST_BLOCK_SIZE / sizeof(TableEntry));

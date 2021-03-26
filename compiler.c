@@ -54,6 +54,8 @@ struct AssemblerState {
     uint32_t block_size;
     enum Register64 swap_owner_of[16];
     enum Register64 swap_contents[16];
+
+    MemCtx* jit_mem;
     MemCtx* ctx;
     struct GetFunctionCallback callback;
 };
@@ -228,6 +230,18 @@ void __attribute__((always_inline)) asm_emit_mov_r64_r64(Register64 dest, Regist
     asm_emit_byte(MODRM(0b11, source & 0b111, dest & 0b0111), state);
     asm_emit_byte(0x89, state);
     asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, dest >> 3 & 0b1), state);
+}
+
+void __attribute__((always_inline)) asm_emit_mov_r64_ir64(Register64 dest, Register64 in_source, struct AssemblerState* state) {
+    asm_emit_byte(MODRM(0b00, dest & 0b111, in_source & 0b0111), state);
+    asm_emit_byte(0x8B, state);
+    asm_emit_byte(REX(0b1, dest >> 3 & 0b1, 0b0, in_source >> 3 & 0b1), state);
+}
+
+void __attribute__((always_inline)) asm_emit_mov_ir64_r64(Register64 in_dest, Register64 source, struct AssemblerState* state) {
+    asm_emit_byte(MODRM(0b00, source & 0b111, in_dest & 0b0111), state);
+    asm_emit_byte(0x89, state);
+    asm_emit_byte(REX(0b1, source >> 3 & 0b1, 0b0, in_dest >> 3 & 0b1), state);
 }
 
 void __attribute__((always_inline)) asm_emit_mov_r64_i64(Register64 dest, uint64_t constant, struct AssemblerState* state) {
@@ -715,6 +729,96 @@ void __attribute__((always_inline)) emit_call(Instruction* instruction, struct A
     if (push_rdx) asm_emit_push_r64(RDX, state);
     if (push_rax) asm_emit_push_r64(RAX, state);
 }
+
+void __attribute__((always_inline)) emit_get_attr(Instruction* instruction, struct AssemblerState* state) {
+    struct GetAttrIR* instr = &instruction->ir_get_attr;
+
+    if (!IS_ASSIGNED(GET_REG(instr))) return;
+    Register64 this_reg = GET_REG(instr);
+    unmark_register(this_reg, state);
+
+    Register64 obj_reg = instr_fetch_reg(instr->obj, RCX, state);
+
+    if (state->used_registers[RAX]) asm_emit_pop_r64(RAX, state);
+    if (state->used_registers[RDX]) asm_emit_pop_r64(RDX, state);
+    if (state->used_registers[RCX]) asm_emit_pop_r64(RCX, state);
+
+    asm_emit_mov_r64_r64(this_reg, RAX, state);
+    asm_emit_byte(0x20, state);
+    asm_emit_byte(0xc4, state);
+    asm_emit_byte(0x83, state);
+    asm_emit_byte(0x48, state);
+    asm_emit_call_r64(RAX, state);
+    asm_emit_byte(0x20, state);
+    asm_emit_byte(0xec, state);
+    asm_emit_byte(0x83, state);
+    asm_emit_byte(0x48, state);
+    asm_emit_mov_r64_i64(RAX, (uint64_t) hash_table_get_ptr, state);
+    asm_emit_mov_r64_r64(RCX, obj_reg, state);
+    asm_emit_mov_r64_i64(RDX, (uint64_t) instr->attr, state);
+
+    if (state->used_registers[RCX]) asm_emit_push_r64(RCX, state);
+    if (state->used_registers[RDX]) asm_emit_push_r64(RDX, state);
+    if (state->used_registers[RAX]) asm_emit_push_r64(RAX, state);
+}
+
+void __attribute__((always_inline)) emit_get_loc(Instruction* instruction, struct AssemblerState* state) {
+    struct GetLocIR* instr = &instruction->ir_get_loc;
+    OJIT_ASSERT(TYPE_OF(instr->loc) == ID_GET_ATTR_IR, "err");
+
+    if (!IS_ASSIGNED(GET_REG(instr))) return;
+    Register64 this_reg = GET_REG(instr);
+    unmark_register(this_reg, state);
+
+    Register64 loc_reg = instr_fetch_reg(instr->loc, this_reg, state);
+
+    asm_emit_mov_r64_ir64(this_reg, loc_reg, state);
+}
+
+void __attribute__((always_inline)) emit_set_loc(Instruction* instruction, struct AssemblerState* state) {
+    struct SetLocIR* instr = &instruction->ir_set_loc;
+    OJIT_ASSERT(TYPE_OF(instr->loc) == ID_GET_ATTR_IR, "err");
+
+//    if (!IS_ASSIGNED(GET_REG(instr))) return;
+    Register64 this_reg = GET_REG(instr);
+    if (IS_ASSIGNED(this_reg)) {
+        unmark_register(this_reg, state);
+    }
+
+    Register64 loc_reg = instr_fetch_reg(instr->loc, this_reg, state);
+    Register64 value_reg = instr_fetch_reg(instr->value, this_reg, state);
+
+    asm_emit_mov_ir64_r64(loc_reg, value_reg, state);
+}
+
+void __attribute__((always_inline)) emit_new_object(Instruction* instruction, struct AssemblerState* state) {
+    struct NewObjectIR* instr = &instruction->ir_new_object;
+
+    if (!IS_ASSIGNED(GET_REG(instr))) return;
+    Register64 this_reg = GET_REG(instr);
+    unmark_register(this_reg, state);
+
+    if (state->used_registers[RAX]) asm_emit_pop_r64(RAX, state);
+    if (state->used_registers[RDX]) asm_emit_pop_r64(RDX, state);
+    if (state->used_registers[RCX]) asm_emit_pop_r64(RCX, state);
+
+    asm_emit_mov_r64_r64(this_reg, RAX, state);
+    asm_emit_byte(0x20, state);
+    asm_emit_byte(0xc4, state);
+    asm_emit_byte(0x83, state);
+    asm_emit_byte(0x48, state);
+    asm_emit_call_r64(RAX, state);
+    asm_emit_byte(0x20, state);
+    asm_emit_byte(0xec, state);
+    asm_emit_byte(0x83, state);
+    asm_emit_byte(0x48, state);
+    asm_emit_mov_r64_i64(RAX, (uint64_t) new_hash_table, state);
+    asm_emit_mov_r64_i64(RCX, (uint64_t) state->jit_mem, state);
+
+    if (state->used_registers[RCX]) asm_emit_push_r64(RCX, state);
+    if (state->used_registers[RDX]) asm_emit_push_r64(RDX, state);
+    if (state->used_registers[RAX]) asm_emit_push_r64(RAX, state);
+}
 // endregion
 
 // region Emit Terminators
@@ -851,6 +955,10 @@ void __attribute__((always_inline)) emit_instruction(Instruction* instruction_ir
         case ID_CMP_IR: emit_cmp(instruction_ir, state, true); break;
         case ID_CALL_IR: emit_call(instruction_ir, state); break;
         case ID_GLOBAL_IR: emit_global(instruction_ir, state); break;
+        case ID_GET_ATTR_IR: emit_get_attr(instruction_ir, state); break;
+        case ID_GET_LOC_IR: emit_get_loc(instruction_ir, state); break;
+        case ID_SET_LOC_IR: emit_set_loc(instruction_ir, state); break;
+        case ID_NEW_OBJECT_IR: emit_new_object(instruction_ir, state); break;
         case ID_BLOCK_PARAMETER_IR: emit_block_parameter(instruction_ir, state); break;
         case ID_INSTR_NONE:
             ojit_new_error();
@@ -943,6 +1051,22 @@ void dump_function(struct FunctionIR* func) {
                     printf("$%i = GLOBAL\n", i);
                     break;
                 }
+                case ID_NEW_OBJECT_IR: {
+                    printf("$%i = NEW_OBJECT\n", i);
+                    break;
+                }
+                case ID_GET_ATTR_IR: {
+                    printf("$%i = GETATTR $%i\n", i, get_var_num(instr->ir_get_attr.obj, &var_names));
+                    break;
+                }
+                case ID_GET_LOC_IR: {
+                    printf("$%i = GETLOC $%i\n", i, get_var_num(instr->ir_get_loc.loc, &var_names));
+                    break;
+                }
+                case ID_SET_LOC_IR: {
+                    printf("$%i = SETLOC $%i, $%i\n", i, get_var_num(instr->ir_set_loc.loc, &var_names), get_var_num(instr->ir_set_loc.value, &var_names));
+                    break;
+                }
                 case ID_INSTR_NONE: {
                     printf("$%i = UNKNOWN\n", i);
                     break;
@@ -1007,6 +1131,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 
     struct AssemblerState state;
     state.ctx = compiler_mem;
+    state.jit_mem = create_mem_ctx(); // TODO bring this out
 
     size_t generated_size = 0;
 

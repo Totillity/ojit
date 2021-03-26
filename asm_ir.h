@@ -67,6 +67,10 @@ enum InstructionID {
     ID_CMP_IR,
     ID_CALL_IR,
     ID_GLOBAL_IR,
+    ID_GET_ATTR_IR,
+    ID_GET_LOC_IR,
+    ID_SET_LOC_IR,
+    ID_NEW_OBJECT_IR,
 };
 
 struct InstructionBase {
@@ -133,6 +137,27 @@ struct GlobalIR {
     String name;
 };
 
+struct GetAttrIR {
+    struct InstructionBase base;
+    Instruction* obj;
+    String attr;
+};
+
+struct GetLocIR {
+    struct InstructionBase base;
+    Instruction* loc;
+};
+
+struct SetLocIR {
+    struct InstructionBase base;
+    Instruction* loc;
+    Instruction* value;
+};
+
+struct NewObjectIR {
+    struct InstructionBase base;
+};
+
 union u_InstructionIR {
     struct InstructionBase base;
     struct ParameterIR ir_parameter;
@@ -142,6 +167,10 @@ union u_InstructionIR {
     struct CompareIR ir_cmp;
     struct CallIR ir_call;
     struct GlobalIR ir_global;
+    struct GetAttrIR ir_get_attr;
+    struct GetLocIR ir_get_loc;
+    struct SetLocIR ir_set_loc;
+    struct NewObjectIR ir_new_object;
 };
 // endregion
 
