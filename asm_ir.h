@@ -16,6 +16,8 @@
 #define DEC_INSTR(instr) ((instr)->base.refs--)
 #define INSTR_REF(instr) ((instr)->base.refs)
 
+#define INSTR_TYPE(val) ((val)->base.id)
+
 // region Registers
 // Idea: add Spilled-reg to mark values which were spilled onto the stack
 enum Register64 {
@@ -48,6 +50,11 @@ typedef enum Register64 Register64;
 #define IS_ASSIGNED(reg) (((reg) & 0b1111) != NO_REG)
 // endregion
 
+typedef enum ValueType {
+    TYPE_INT,
+    TYPE_OBJECT,
+} ValueType;
+
 struct GetFunctionCallback {
     void* compiled_callback;
     void* ir_callback;
@@ -73,14 +80,11 @@ enum InstructionID {
     ID_NEW_OBJECT_IR,
 };
 
-struct InstructionBase {
+struct InstructionBase  {
     Register64 reg;
-    uint32_t index;
-    uint32_t refs;
     enum InstructionID id;
-#ifdef OJIT_READABLE_IR
-    bool is_disabled;
-#endif
+    uint16_t refs;
+    uint16_t index;
 };
 
 struct ParameterIR {
@@ -215,7 +219,7 @@ union TerminatorIR {
 struct BlockIR {
     LAList* first_instrs;
     LAList* last_instrs;
-    size_t num_instrs;
+    uint16_t num_instrs;
 
     union TerminatorIR terminator;
 
@@ -232,7 +236,6 @@ struct BlockIR {
 // region Function
 struct FunctionIR {
     String name;
-    LAList* first_blocks;
     LAList* last_blocks;
 
     struct BlockIR* first_block;

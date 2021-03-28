@@ -430,7 +430,7 @@ void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, struct Bl
 // endregion
 
 // region Utility
-#define TYPE_OF(val) ((val)->base.id)
+
 // endregion
 
 // region Emit
@@ -458,10 +458,10 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
     unmark_register(this_reg, state);
 
 #ifdef OJIT_OPTIMIZATIONS
-    if (TYPE_OF(instr->a) == ID_INT_IR || TYPE_OF(instr->b) == ID_INT_IR) {
+    if (INSTR_TYPE(instr->a) == ID_INT_IR || INSTR_TYPE(instr->b) == ID_INT_IR) {
         Register64 add_to;
         uint32_t constant;
-        if (TYPE_OF(instr->a) == ID_INT_IR) {
+        if (INSTR_TYPE(instr->a) == ID_INT_IR) {
             add_to = instr_fetch_reg(instr->b, this_reg, state);
             constant = instr->a->ir_int.constant;
         } else {
@@ -532,10 +532,10 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
     bool b_assigned = IS_ASSIGNED(b_register);
 
 #ifdef OJIT_OPTIMIZATIONS
-    if (TYPE_OF(instr->a) == ID_INT_IR || TYPE_OF(instr->b) == ID_INT_IR) {
+    if (INSTR_TYPE(instr->a) == ID_INT_IR || INSTR_TYPE(instr->b) == ID_INT_IR) {
         Register64 sub_from;
         uint32_t constant;
-        if (TYPE_OF(instr->a) == ID_INT_IR) {
+        if (INSTR_TYPE(instr->a) == ID_INT_IR) {
             sub_from = instr_fetch_reg(instr->b, this_reg, state);
             constant = instr->a->ir_int.constant;
         } else {
@@ -603,10 +603,10 @@ void __attribute__((always_inline)) emit_cmp(Instruction* instruction, struct As
     Register64 b_register = instr_fetch_reg(instr->b, NO_REG, state);
 
 #ifdef OJIT_OPTIMIZATIONS
-    if (TYPE_OF(instr->a) == ID_INT_IR || TYPE_OF(instr->b) == ID_INT_IR) {
+    if (INSTR_TYPE(instr->a) == ID_INT_IR || INSTR_TYPE(instr->b) == ID_INT_IR) {
         Register64 cmp_with;
         uint32_t constant;
-        if (TYPE_OF(instr->a) == ID_INT_IR) {
+        if (INSTR_TYPE(instr->a) == ID_INT_IR) {
             cmp_with = instr_fetch_reg(instr->b, this_reg, state);
             constant = instr->a->ir_int.constant;
         } else {
@@ -764,7 +764,7 @@ void __attribute__((always_inline)) emit_get_attr(Instruction* instruction, stru
 
 void __attribute__((always_inline)) emit_get_loc(Instruction* instruction, struct AssemblerState* state) {
     struct GetLocIR* instr = &instruction->ir_get_loc;
-    OJIT_ASSERT(TYPE_OF(instr->loc) == ID_GET_ATTR_IR, "err");
+    OJIT_ASSERT(INSTR_TYPE(instr->loc) == ID_GET_ATTR_IR, "err");
 
     if (!IS_ASSIGNED(GET_REG(instr))) return;
     Register64 this_reg = GET_REG(instr);
@@ -777,9 +777,8 @@ void __attribute__((always_inline)) emit_get_loc(Instruction* instruction, struc
 
 void __attribute__((always_inline)) emit_set_loc(Instruction* instruction, struct AssemblerState* state) {
     struct SetLocIR* instr = &instruction->ir_set_loc;
-    OJIT_ASSERT(TYPE_OF(instr->loc) == ID_GET_ATTR_IR, "err");
+    OJIT_ASSERT(INSTR_TYPE(instr->loc) == ID_GET_ATTR_IR, "err");
 
-//    if (!IS_ASSIGNED(GET_REG(instr))) return;
     Register64 this_reg = GET_REG(instr);
     if (IS_ASSIGNED(this_reg)) {
         unmark_register(this_reg, state);
@@ -878,7 +877,7 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
                     exit(-1);  // TODO oh god not again
                 }
             } else {
-                if (!IS_ASSIGNED(argument_reg) && TYPE_OF(argument) == ID_BLOCK_PARAMETER_IR && argument->ir_parameter.entry_reg != NO_REG) {
+                if (!IS_ASSIGNED(argument_reg) && INSTR_TYPE(argument) == ID_BLOCK_PARAMETER_IR && argument->ir_parameter.entry_reg != NO_REG) {
 //                    argument_reg = ;
                     argument_reg = instr_fetch_reg(argument, argument->ir_parameter.entry_reg, state);
 //                    instr_assign_reg(argument, argument_reg);
@@ -910,7 +909,7 @@ void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator,
     struct CBranchIR* cbranch = &terminator->ir_cbranch;
 
 #ifdef OJIT_OPTIMIZATIONS
-    if (TYPE_OF(cbranch->cond) == ID_CMP_IR) {
+    if (INSTR_TYPE(cbranch->cond) == ID_CMP_IR) {
         if (!IS_ASSIGNED(GET_REG(cbranch->cond))) {
             asm_emit_jcc(IF_NOT_ZERO, cbranch->true_target, state);
             resolve_branch(cbranch->true_target, state);
@@ -1102,7 +1101,7 @@ void dump_function(struct FunctionIR* func) {
 
 // region Compile
 void assign_function_parameters(struct FunctionIR* func) {
-    struct BlockIR* first_block = lalist_get(func->first_blocks, sizeof(struct BlockIR), 0);
+    struct BlockIR* first_block = func->first_block;
     int param_num = 0;
     FOREACH_INSTR(instr, first_block->first_instrs) {
         if (instr->base.id == ID_BLOCK_PARAMETER_IR) {

@@ -9,7 +9,6 @@ enum FoldStep {
     REPEAT_FOLD,
 };
 
-#define TYPE_OF(instr) ((instr)->base.id)
 #define AS_INSTR(instr) ((Instruction*) (instr))
 
 void disable_instr(Instruction* instr) {
@@ -28,20 +27,20 @@ void replace_instr_add(Instruction* instr, Instruction* a, Instruction* b) {
 void optimize_add_ir(Instruction* instr) {
     struct AddIR* add_ir = &instr->ir_add;
 
-    bool a_is_int = TYPE_OF(add_ir->a) == ID_INT_IR;
-    bool b_is_int = TYPE_OF(add_ir->b) == ID_INT_IR;
+    bool a_is_int = INSTR_TYPE(add_ir->a) == ID_INT_IR;
+    bool b_is_int = INSTR_TYPE(add_ir->b) == ID_INT_IR;
 
     if (a_is_int && b_is_int) {
         replace_instr_int(instr, add_ir->a->ir_int.constant + add_ir->b->ir_int.constant);
         disable_instr(add_ir->a);
         disable_instr(add_ir->b);
-    } else if (a_is_int && TYPE_OF(add_ir->b) == ID_ADD_IR) {
+    } else if (a_is_int && INSTR_TYPE(add_ir->b) == ID_ADD_IR) {
         struct AddIR* inner_add = &add_ir->b->ir_add;
         uint32_t outer_const = add_ir->a->ir_int.constant;
-        if (TYPE_OF(inner_add->a) == ID_INT_IR || TYPE_OF(inner_add->b) == ID_INT_IR) {
+        if (INSTR_TYPE(inner_add->a) == ID_INT_IR || INSTR_TYPE(inner_add->b) == ID_INT_IR) {
             uint32_t inner_const;
             Instruction* inner_val;
-            if (TYPE_OF(inner_add->a) == ID_INT_IR) {
+            if (INSTR_TYPE(inner_add->a) == ID_INT_IR) {
                 inner_const = inner_add->a->ir_int.constant;
                 inner_val = inner_add->b;
                 disable_instr(inner_add->a);
@@ -55,13 +54,13 @@ void optimize_add_ir(Instruction* instr) {
             replace_instr_int(add_ir->a, new_constant);
             replace_instr_add((Instruction*) add_ir, add_ir->a, inner_val);
         }
-    } else if (b_is_int && TYPE_OF(add_ir->a) == ID_ADD_IR) {
+    } else if (b_is_int && INSTR_TYPE(add_ir->a) == ID_ADD_IR) {
         struct AddIR* inner_add = &add_ir->a->ir_add;
         uint32_t outer_const = add_ir->b->ir_int.constant;
-        if (TYPE_OF(inner_add->a) == ID_INT_IR || TYPE_OF(inner_add->b) == ID_INT_IR) {
+        if (INSTR_TYPE(inner_add->a) == ID_INT_IR || INSTR_TYPE(inner_add->b) == ID_INT_IR) {
             uint32_t inner_const;
             Instruction* inner_val;
-            if (TYPE_OF(inner_add->a) == ID_INT_IR) {
+            if (INSTR_TYPE(inner_add->a) == ID_INT_IR) {
                 inner_const = inner_add->a->ir_int.constant;
                 inner_val = inner_add->b;
                 disable_instr(inner_add->a);
@@ -79,7 +78,7 @@ void optimize_add_ir(Instruction* instr) {
 }
 
 #define MATCH_ADD(a_type, b_type, func) \
-    if (TYPE_OF(instr) == ID_ADD_IR && TYPE_OF(instr->ir_add.a) == a_type && TYPE_OF(instr->ir_add.b) == b_type) { \
+    if (INSTR_TYPE(instr) == ID_ADD_IR && INSTR_TYPE(instr->ir_add.a) == a_type && INSTR_TYPE(instr->ir_add.b) == b_type) { \
         next_step = func((void*) instr, (void*) instr->ir_add.a, (void*) instr->ir_add.b); \
     } else
 
@@ -99,10 +98,10 @@ void fold_communtative_add(struct AddIR* instr, struct AddIR* inner_add, struct 
 }
 
 enum FoldStep fold_add_int_add(struct AddIR* instr, struct IntIR* a, struct AddIR* b) {
-    if (INSTR_REF(b) == 1 && (TYPE_OF(b->a) == ID_INT_IR || TYPE_OF(b->b) == ID_INT_IR)) {
+    if (INSTR_REF(b) == 1 && (INSTR_TYPE(b->a) == ID_INT_IR || INSTR_TYPE(b->b) == ID_INT_IR)) {
         Instruction* val;
         struct IntIR* inner_const;
-        if (TYPE_OF(b->a) == ID_INT_IR) {
+        if (INSTR_TYPE(b->a) == ID_INT_IR) {
             val = b->b;
             inner_const = (struct IntIR*) b->a;
         } else {
@@ -116,10 +115,10 @@ enum FoldStep fold_add_int_add(struct AddIR* instr, struct IntIR* a, struct AddI
 }
 
 enum FoldStep fold_add_add_int(struct AddIR* instr, struct AddIR* a, struct IntIR* b) {
-    if (INSTR_REF(a) == 1 && (TYPE_OF(a->a) == ID_INT_IR || TYPE_OF(a->b) == ID_INT_IR)) {
+    if (INSTR_REF(a) == 1 && (INSTR_TYPE(a->a) == ID_INT_IR || INSTR_TYPE(a->b) == ID_INT_IR)) {
         Instruction* val;
         struct IntIR* inner_const;
-        if (TYPE_OF(a->a) == ID_INT_IR) {
+        if (INSTR_TYPE(a->a) == ID_INT_IR) {
             val = a->b;
             inner_const = (struct IntIR*) a->a;
         } else {

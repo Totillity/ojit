@@ -32,18 +32,15 @@ IRBuilder* create_builder(struct FunctionIR* function_ir, MemCtx* ctx) {
     IRBuilder* builder = ojit_alloc(ctx, sizeof(IRBuilder));
     builder->function = function_ir;
     builder->ir_mem = ctx;
-    builder->current_block = lalist_get(function_ir->first_blocks, sizeof(Instruction), 0);
+    builder->current_block = function_ir->first_block;
     return builder;
 }
 
 Instruction* builder_add_instr(IRBuilder* builder) {
     Instruction* instr = lalist_grow_add(&builder->current_block->last_instrs, sizeof(Instruction));
-    builder->current_block->num_instrs++;
-    instr->base.refs = 0;
     instr->base.reg = NO_REG;
-#ifdef OJIT_READABLE_IR
-    instr->base.is_disabled = false;
-#endif
+    instr->base.refs = 0;
+    instr->base.index = builder->current_block->num_instrs++;
     return instr;
 }
 
@@ -72,7 +69,7 @@ void builder_temp_swap_block(IRBuilder* builder, struct BlockIR* block_ir) {
 void builder_enter_block(IRBuilder* builder, struct BlockIR* block_ir) {
     builder->current_block = block_ir;
     FOREACH_INSTR(curr_instr, block_ir->first_instrs) {
-        if (curr_instr->base.id == ID_BLOCK_PARAMETER_IR) {
+        if (INSTR_TYPE(curr_instr) == ID_BLOCK_PARAMETER_IR) {
             struct ParameterIR* param = &curr_instr->ir_parameter;
             builder_add_variable(builder, param->var_name, (IRValue) param);
         } else {
@@ -85,7 +82,7 @@ IRValue builder_add_parameter(IRBuilder* builder, String var_name) {
     struct ParameterIR* instr = &builder_add_instr(builder)->ir_parameter;
     instr->var_name = var_name;
     instr->entry_reg = NO_REG;
-    instr->base.id = ID_BLOCK_PARAMETER_IR;
+    INSTR_TYPE(instr) = ID_BLOCK_PARAMETER_IR;
     return (IRValue) instr;
 }
 
@@ -116,7 +113,7 @@ IRValue builder_get_variable(IRBuilder* builder, String var_name) {
 IRValue builder_Int(IRBuilder* builder, int32_t constant) {
     struct IntIR* instr = &builder_add_instr(builder)->ir_int;
     instr->constant = constant;
-    instr->base.id = ID_INT_IR;
+    INSTR_TYPE(instr) = ID_INT_IR;
     return (Instruction*) instr;
 }
 
@@ -126,7 +123,7 @@ IRValue builder_Add(IRBuilder* builder, IRValue a, IRValue b) {
     instr->b = b;
     INC_INSTR(a);
     INC_INSTR(b);
-    instr->base.id = ID_ADD_IR;
+    INSTR_TYPE(instr) = ID_ADD_IR;
     return (Instruction*) instr;
 }
 
@@ -136,7 +133,7 @@ IRValue builder_Sub(IRBuilder* builder, IRValue a, IRValue b) {
     instr->b = b;
     INC_INSTR(a);
     INC_INSTR(b);
-    instr->base.id = ID_SUB_IR;
+    INSTR_TYPE(instr) = ID_SUB_IR;
     return (Instruction*) instr;
 }
 
@@ -147,7 +144,7 @@ IRValue builder_Cmp(IRBuilder* builder, enum Comparison cmp, IRValue a, IRValue 
     instr->b = b;
     INC_INSTR(a);
     INC_INSTR(b);
-    instr->base.id = ID_CMP_IR;
+    INSTR_TYPE(instr) = ID_CMP_IR;
     return (Instruction*) instr;
 }
 
@@ -155,7 +152,7 @@ IRValue builder_Call(IRBuilder* builder, IRValue callee) {
     struct CallIR* instr = &builder_add_instr(builder)->ir_call;
     instr->callee = callee;
     instr->arguments = lalist_grow(builder->ir_mem, NULL, NULL);
-    instr->base.id = ID_CALL_IR;
+    INSTR_TYPE(instr) = ID_CALL_IR;
     return (Instruction*) instr;
 }
 
@@ -169,7 +166,7 @@ void builder_Call_argument(IRValue call_instr, IRValue argument) {
 IRValue builder_Global(IRBuilder* builder, String name) {
     struct GlobalIR* instr = &builder_add_instr(builder)->ir_global;
     instr->name = name;
-    instr->base.id = ID_GLOBAL_IR;
+    INSTR_TYPE(instr) = ID_GLOBAL_IR;
     return (Instruction*) instr;
 }
 
@@ -177,7 +174,7 @@ IRValue builder_GetAttrIR(IRBuilder* builder, Instruction* obj, String attr) {
     struct GetAttrIR* instr = &builder_add_instr(builder)->ir_get_attr;
     instr->obj = obj;
     instr->attr = attr;
-    instr->base.id = ID_GET_ATTR_IR;
+    INSTR_TYPE(instr) = ID_GET_ATTR_IR;
     INC_INSTR(obj);
     return (Instruction*) instr;
 }
@@ -185,7 +182,7 @@ IRValue builder_GetAttrIR(IRBuilder* builder, Instruction* obj, String attr) {
 IRValue builder_GetLocIR(IRBuilder* builder, Instruction* loc) {
     struct GetLocIR* instr = &builder_add_instr(builder)->ir_get_loc;
     instr->loc = loc;
-    instr->base.id = ID_GET_LOC_IR;
+    INSTR_TYPE(instr) = ID_GET_LOC_IR;
     INC_INSTR(loc);
     return (Instruction*) instr;
 }
@@ -194,7 +191,7 @@ IRValue builder_SetLocIR(IRBuilder* builder, Instruction* loc, Instruction* valu
     struct SetLocIR* instr = &builder_add_instr(builder)->ir_set_loc;
     instr->loc = loc;
     instr->value = value;
-    instr->base.id = ID_SET_LOC_IR;
+    INSTR_TYPE(instr) = ID_SET_LOC_IR;
     instr->base.refs = 1;
     INC_INSTR(loc);
     INC_INSTR(value);
@@ -203,7 +200,7 @@ IRValue builder_SetLocIR(IRBuilder* builder, Instruction* loc, Instruction* valu
 
 IRValue builder_NewObjectIR(IRBuilder* builder) {
     struct NewObjectIR* instr = &builder_add_instr(builder)->ir_new_object;
-    instr->base.id = ID_NEW_OBJECT_IR;
+    INSTR_TYPE(instr) = ID_NEW_OBJECT_IR;
     return (IRValue) instr;
 }
 // endregion
@@ -218,7 +215,7 @@ void builder_Return(IRBuilder* builder, IRValue value) {
 void merge_blocks(IRBuilder* builder, struct BlockIR* to, struct BlockIR* from) {
     if (to->has_vars) {
         FOREACH_INSTR(curr_instr, to->first_instrs) {
-            if (curr_instr->base.id == ID_BLOCK_PARAMETER_IR) {
+            if (INSTR_TYPE(curr_instr) == ID_BLOCK_PARAMETER_IR) {
                 struct ParameterIR* param = &curr_instr->ir_parameter;
                 if (param->var_name == NULL) continue;
                 IRValue arg;
@@ -271,7 +268,7 @@ struct FunctionIR* create_function(String name, MemCtx* ctx) {
     struct FunctionIR* function = ojit_alloc(ctx, sizeof(struct FunctionIR));
     function->name = name;
     function->compiled = NULL;
-    function->first_blocks = function->last_blocks = lalist_grow(ctx, NULL, NULL);
+    function->last_blocks = lalist_grow(ctx, NULL, NULL);
     function->first_block = function->last_block = function_add_block(function, ctx);
     function->first_block->prev_block = NULL;
     function->last_block->next_block = NULL;
