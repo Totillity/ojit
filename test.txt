@@ -1,6 +1,6 @@
 def main(a1) {
     let obj = {};
-    obj.a1 = a1;
-    obj.a1 = obj.a1 + 3;
+    obj.a1 = 7;
+    obj.a1 = obj.a1 + obj.a1;
     return obj.a1;
 }

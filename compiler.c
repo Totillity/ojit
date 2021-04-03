@@ -370,6 +370,23 @@ void __attribute__((always_inline)) asm_emit_cmp_r64_i32(Register64 source, uint
     asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), state);
 }
 
+void __attribute__((always_inline)) asm_emit_shr_r64_i8(Register64 source, uint8_t constant, struct AssemblerState* state) {
+    asm_emit_int8(constant, state);
+    asm_emit_byte(MODRM(0b11, 5, source & 0b0111), state);
+    asm_emit_byte(0xC1, state);
+    asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), state);
+}
+
+void __attribute__((always_inline)) asm_emit_and_r8_i8(Register64 source, uint8_t constant, struct AssemblerState* state) {
+    asm_emit_int8(constant, state);
+    asm_emit_byte(MODRM(0b11, 4, source & 0b0111), state);
+    asm_emit_byte(0x80, state);
+    if ((source >> 3) & 0b0001) {
+        asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), state);
+    }
+}
+
+
 void __attribute__((always_inline)) asm_emit_setcc(enum Comparison cond, enum Register64 reg, struct AssemblerState* state) {
     asm_emit_byte(MODRM(0b11, 0, reg & 0b0111), state);
     asm_emit_byte(cond + 0x10, state);
@@ -431,6 +448,27 @@ void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, struct Bl
 
 // region Utility
 
+// ============ NAN Boxing ============
+// Here are 64 bits:
+//  0000000000000 000 000000000000000000000000000000000000000000000000
+// |------A------|-B-|-----------------------C------------------------|
+//   A: Check this. If its != 0, then its a double, otherwise its a boxed object.
+//       Note: if it is a double, then you must invert the whole thing to restore it
+//   B: Tag of the object (if it is one, otherwise its just double data)
+//       Tags:
+//           000: Pointer              (uses 48 bits)
+//           001: Unsigned Integer     (uses 32 bits)
+//           010: Signed Integer       (uses 32 bits)
+//           011-111: Other
+//   C: Payload. Size and usage vary based on type.
+
+void __attribute__((always_inline)) emit_wrap_int_i32(enum Register64 to_reg, uint32_t constant, struct AssemblerState* state) {
+    uint64_t value = 0;
+    value += 0b001ull << 48;
+    value += constant;
+    asm_emit_mov_r64_i64(to_reg, value, state);
+}
+
 // endregion
 
 // region Emit
@@ -438,7 +476,8 @@ void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, struct Bl
 void __attribute__((always_inline)) emit_int(Instruction* instruction, struct AssemblerState* state) {
     struct IntIR* instr = &instruction->ir_int;
     if (IS_ASSIGNED(GET_REG(instr))) {
-        asm_emit_mov_r64_i64(GET_REG(instr), instr->constant, state);
+//        asm_emit_mov_r64_i64(GET_REG(instr), instr->constant, state);
+        emit_wrap_int_i32(GET_REG(instr), instr->constant, state);
         unmark_register(instr->base.reg, state);
     }
 }

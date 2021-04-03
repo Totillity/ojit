@@ -201,7 +201,7 @@ void ojit_optimize_func(struct FunctionIR* func, struct GetFunctionCallback call
 
     struct BlockIR* block = func->first_block;
     while (block) {
-        ojit_optimize_block(block, &state);
+//        ojit_optimize_block(block, &state);
         block = block->next_block;
     }
 

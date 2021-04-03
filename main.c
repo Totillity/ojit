@@ -2,8 +2,9 @@
 #include <sys/time.h>
 
 #include "jit_interpreter.h"
+#include "obj.h"
 
-typedef int (*FuncType)(int);
+typedef OJITObject (*FuncType)(OJITObject);
 
 double time_function(JIT* jit, JITFunc func, int arg) {
     int iterations = 1000000000;
@@ -23,10 +24,10 @@ int main() {
     JITFunc main_func = jit_get_function(jit, "main", 4);
     jit_dump_function(jit, main_func, stdout);
 
-    int res = jit_call_function(jit, main_func, FuncType, 4);
+    OJITObject res = jit_call_function(jit, main_func, FuncType, 4);
 
 //    double t = time_function(jit, main_func, 3);
 //    printf("Value: %i, Time: %f ns\n", res, time_in_nsec);
-    printf("Value: %i\n", res);
+    printf("Value: %llu\n", res);
     return 0;
 }
