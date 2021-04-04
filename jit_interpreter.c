@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include "parser.h"
-#include "compiler.h"
+#include "compiler/compiler.h"
 
 
 JIT* ojit_create_jit() {

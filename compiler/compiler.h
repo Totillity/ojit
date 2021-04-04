@@ -2,7 +2,7 @@
 #define OJIT_COMPILER_H
 
 #include <stdint.h>
-#include "asm_ir.h"
+#include "../asm_ir.h"
 
 struct CompiledFunction {
     uint8_t* mem;
