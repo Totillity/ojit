@@ -104,13 +104,9 @@ void* lalist_get(LAList* lalist, size_t item_size, size_t index) {
     return &lalist->mem[item_size * index];
 }
 
-void lalist_init_iter(LAListIter* iter, LAList* lalist, size_t item_size) {
+void lalist_init_iter(LAListIter* iter, LAList* lalist, size_t index, size_t item_size) {
     iter->curr_list = lalist;
     iter->item_size = item_size;
-    iter->curr_index = 0;
-}
-
-void lalist_iter_position(LAListIter* iter, size_t index) {
     iter->curr_index = index;
 }
 

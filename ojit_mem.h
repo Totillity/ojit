@@ -5,13 +5,12 @@
 #include <stdbool.h>
 
 #define FOREACH(iter_var, iter_over, type) LAListIter iter_##iter_var; \
-                                           lalist_init_iter(&iter_##iter_var, (iter_over), sizeof(type)); \
+                                           lalist_init_iter(&iter_##iter_var, (iter_over), 0, sizeof(type)); \
                                            type* iter_var; \
                                            while (((iter_var) = lalist_iter_next(&iter_##iter_var)) != NULL)
 
 #define FOREACH_REV(iter_var, iter_over, type) LAListIter iter_##iter_var; \
-                                               lalist_init_iter(&iter_##iter_var, (iter_over), sizeof(type)); \
-                                               lalist_iter_position(&iter_##iter_var, iter_##iter_var.curr_list->len); \
+                                               lalist_init_iter(&iter_##iter_var, (iter_over), iter_##iter_var.curr_list->len, sizeof(type)); \
                                                type* iter_var; \
                                                while (((iter_var) = lalist_iter_prev(&iter_##iter_var)) != NULL)
 
@@ -43,8 +42,7 @@ typedef struct s_LAListIter {
     size_t curr_index;
     size_t item_size;
 } LAListIter;
-void lalist_init_iter(LAListIter* iter, LAList* lalist, size_t item_size);
-void lalist_iter_position(LAListIter* iter, size_t index);
+void lalist_init_iter(LAListIter* iter, LAList* lalist, size_t index, size_t item_size);
 void* lalist_iter_next(LAListIter* iter);
 void* lalist_iter_prev(LAListIter* iter);
 

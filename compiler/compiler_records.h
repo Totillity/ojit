@@ -6,46 +6,52 @@
 
 #include "../asm_ir.h"
 
-struct MemBlockBase {
-    uint32_t len;
-    bool is_code;
-    union MemBlock* prev_block;
-    union MemBlock* next_block;
+enum SegmentType {
+    SEGMENT_CODE,
+    SEGMENT_JUMP,
+    SEGMENT_LABEL,
 };
 
-struct MemBlockCode {
-    struct MemBlockBase base;
+struct SegmentBase {
+    enum SegmentType type;
+    uint32_t max_size;
+    uint32_t final_size;
+    uint32_t offset_from_start;
+
+    union u_Segment* prev_block;
+    union u_Segment* next_segment;
+};
+
+struct SegmentCode {
+    struct SegmentBase base;
     uint8_t code[512];
 };
 
-struct MemBlockJump {
-    struct MemBlockBase base;
+struct SegmentLabel {
+    struct SegmentBase base;
+};
+
+struct SegmentJump {
+    struct SegmentBase base;
+    bool is_short;
     uint8_t short_form[2];
     uint8_t long_form[6];
-    struct BlockIR* target;
-    bool is_short;
-    uint32_t offset_from_end;
-    struct MemBlockJump* next_jump;
-    struct MemBlockJump* prev_jump;
+    struct SegmentLabel* jump_to;
 };
 
-union MemBlock {
-    struct MemBlockBase base;
-    struct MemBlockCode code;
-    struct MemBlockJump jump;
-};
-
-struct BlockRecord {
-    uint32_t max_offset_from_end;
-    uint32_t actual_offset_from_end;
-    union MemBlock* end_mem;
-};
+typedef union u_Segment {
+    struct SegmentBase base;
+    struct SegmentCode code;
+    struct SegmentJump jump;
+    struct SegmentLabel label;
+} Segment;
 
 struct AssemblerState {
     struct BlockIR* block;
 
-    union MemBlock* curr_mem;
-    union MemBlock* end_mem;
+    Segment* label_segment;
+    Segment* curr_segment;
+    uint32_t segment_count;
 
     bool used_registers[16];
     uint32_t block_size;
@@ -57,9 +63,10 @@ struct AssemblerState {
     struct GetFunctionCallback callback;
 };
 
-void init_asm_state(struct AssemblerState* state, struct BlockIR* block, union MemBlock* end_mem, struct GetFunctionCallback callback) {
+void init_asm_state(struct AssemblerState* state, struct BlockIR* block, Segment* curr_mem, Segment* label_segment) {
     state->block = block;
-    state->curr_mem = state->end_mem = end_mem;
+    state->curr_segment = curr_mem;
+    state->label_segment = label_segment;
 
     // Windows makes you assume the registers RBX, RSI, RDI, RBP, R12-R15 are used
     // Additionally, we assumed RBP, RSP, R12, and R13 are used because it's a pain to use them
@@ -88,8 +95,58 @@ void init_asm_state(struct AssemblerState* state, struct BlockIR* block, union M
     }
 
     state->block_size = 0;
-    state->callback.compiled_callback = callback.compiled_callback;
-    state->callback.jit_ptr = callback.jit_ptr;
+}
+
+Segment* create_segment_label(Segment* prev_block, Segment* next_block, MemCtx* ctx) {
+    struct SegmentLabel* segment = ojit_alloc(ctx, sizeof(Segment));
+    segment->base.max_size = 0;
+    segment->base.final_size = 0;
+    segment->base.type = SEGMENT_LABEL;
+
+    segment->base.prev_block = prev_block;
+    segment->base.next_segment = next_block;
+    if (next_block) {
+        next_block->base.prev_block = (Segment*) segment;
+    }
+    if (prev_block) {
+        prev_block->base.next_segment = (Segment*) segment;
+    }
+
+    return (Segment*) segment;
+}
+
+Segment* create_mem_block_code(Segment* prev_block, Segment* next_block, MemCtx* ctx) {
+    struct SegmentCode* segment = ojit_alloc(ctx, sizeof(Segment));
+    segment->base.max_size = 0;
+    segment->base.final_size = 0;
+    segment->base.type = SEGMENT_CODE;
+
+    segment->base.prev_block = prev_block;
+    segment->base.next_segment = next_block;
+    if (next_block) {
+        next_block->base.prev_block = (Segment*) segment;
+    }
+    if (prev_block) {
+        prev_block->base.next_segment = (Segment*) segment;
+    }
+    return (Segment*) segment;
+}
+
+Segment* create_mem_block_jump(Segment* prev_block, Segment* next_block, MemCtx* ctx) {
+    struct SegmentJump* segment = &((Segment*) ojit_alloc(ctx, sizeof(Segment)))->jump;
+    segment->base.max_size = 0;
+    segment->base.final_size = 0;
+    segment->base.type = SEGMENT_JUMP;
+
+    segment->base.prev_block = prev_block;
+    segment->base.next_segment = next_block;
+    if (next_block) {
+        next_block->base.prev_block = (Segment*) segment;
+    }
+    if (prev_block) {
+        prev_block->base.next_segment = (Segment*) segment;
+    }
+    return (Segment*) segment;
 }
 
 #endif //OJIT_COMPILER_RECORDS_H

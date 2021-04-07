@@ -8,35 +8,13 @@
 #define REX(w, r, x, b) ((uint8_t) (0b01000000 | ((w) << 3) | ((r) << 2) | ((x) << 1) | ((b))))
 #define MODRM(mod, reg, rm) (((mod) << 6) | ((reg) << 3) | (rm))
 
-union MemBlock* create_mem_block_code(union MemBlock* prev_block, union MemBlock* next_block, MemCtx* ctx) {
-    struct MemBlockCode* code = &((union MemBlock*) ojit_alloc(ctx, sizeof(union MemBlock)))->code;
-    code->base.len = 0;
-    code->base.is_code = true;
-    code->base.next_block = next_block;
-    code->base.prev_block = prev_block;
-    if (next_block) next_block->base.prev_block = (union MemBlock*) code;
-    if (prev_block) prev_block->base.next_block = (union MemBlock*) code;
-    return (union MemBlock*) code;
-}
-
-union MemBlock* create_mem_block_jump(union MemBlock* prev_block, union MemBlock* next_block, MemCtx* ctx) {
-    struct MemBlockJump* jump = &((union MemBlock*) ojit_alloc(ctx, sizeof(union MemBlock)))->jump;
-    jump->base.len = 0;
-    jump->base.is_code = false;
-    jump->base.next_block = next_block;
-    jump->base.prev_block = prev_block;
-    if (next_block) next_block->base.prev_block = (union MemBlock*) jump;
-    if (prev_block) prev_block->base.next_block = (union MemBlock*) jump;
-    return (union MemBlock*) jump;
-}
-
 void __attribute__((always_inline)) asm_emit_byte(uint8_t byte, struct AssemblerState* state) {
-    if (state->curr_mem->base.len >= 512) {
-        state->curr_mem = create_mem_block_code(NULL, state->curr_mem, state->ctx);
+    if (state->curr_segment->base.max_size >= 512) {
+        state->curr_segment = create_mem_block_code(state->label_segment, state->curr_segment, state->ctx);
     }
-    state->curr_mem->base.len++;
+    state->curr_segment->base.max_size++;
     state->block_size++;
-    state->curr_mem->code.code[512-state->curr_mem->base.len] = byte;
+    state->curr_segment->code.code[512 - state->curr_segment->base.max_size] = byte;
 }
 
 void __attribute__((always_inline)) asm_emit_int8(uint8_t constant, struct AssemblerState* state) {
@@ -255,37 +233,34 @@ void __attribute__((always_inline)) asm_emit_setcc(enum Comparison cond, enum Re
     }
 }
 
-void __attribute__((always_inline)) asm_emit_jmp(struct BlockIR* target, struct AssemblerState* state) {
-#ifdef OJIT_OPTIMIZATIONS
-    if (target->prev_block == state->block) return;
-#endif
-    struct MemBlockJump* jump = (struct MemBlockJump*) create_mem_block_jump(NULL, state->curr_mem, state->ctx);
-    jump->target = target;
-    jump->base.len = 5;
-    jump->long_form[0] = 0x00;
-    jump->long_form[1] = 0xE9;
-    jump->long_form[2] = 0xEF;
-    jump->long_form[3] = 0xBE;
-    jump->long_form[4] = 0xAD;
-    jump->long_form[5] = 0xDE;
+void __attribute__((always_inline)) asm_emit_jmp(Segment* jump_after, struct AssemblerState* state) {
+//#ifdef OJIT_OPTIMIZATIONS
+//    if (target->prev_block == state->block) return;
+//#endif
+    struct SegmentJump* jump = (struct SegmentJump*) create_mem_block_jump(state->label_segment, state->curr_segment, state->ctx);
+    jump->jump_to = (struct SegmentLabel*) jump_after;
+    jump->base.max_size = 5;
+    jump->long_form[0] = 0xE9;
+    jump->long_form[1] = 0xEF;
+    jump->long_form[2] = 0xBE;
+    jump->long_form[3] = 0xAD;
+    jump->long_form[4] = 0xDE;
 
     jump->short_form[0] = 0xEB;
     jump->short_form[1] = 0xFF;
-    jump->next_jump = NULL;
-    jump->prev_jump = NULL;
 
     state->block_size += 5;
 
-    state->curr_mem = create_mem_block_code(NULL, (union MemBlock*) jump, state->ctx);
+    state->curr_segment = create_mem_block_code(state->label_segment, (Segment*) jump, state->ctx);
 }
 
-void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, struct BlockIR* target, struct AssemblerState* state) {
-#ifdef OJIT_OPTIMIZATIONS
-    if (target->prev_block == state->block) return;
-#endif
-    struct MemBlockJump* jump = (struct MemBlockJump*) create_mem_block_jump(NULL, state->curr_mem, state->ctx);
-    jump->target = target;
-    jump->base.len = 6;
+void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, Segment* jump_after, struct AssemblerState* state) {
+//#ifdef OJIT_OPTIMIZATIONS
+//    if (target->prev_block == state->block) return;
+//#endif
+    struct SegmentJump* jump = (struct SegmentJump*) create_mem_block_jump(state->label_segment, state->curr_segment, state->ctx);
+    jump->jump_to = (struct SegmentLabel*) jump_after;
+    jump->base.max_size = 6;
     jump->long_form[0] = 0x0F;
     jump->long_form[1] = cond;
     jump->long_form[2] = 0xEF;
@@ -296,12 +271,9 @@ void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, struct Bl
     jump->short_form[0] = cond - 0x10;
     jump->short_form[1] = 0xFF;
 
-    jump->next_jump = NULL;
-    jump->prev_jump = NULL;
-
     state->block_size += 6;
 
-    state->curr_mem = create_mem_block_code(NULL, (union MemBlock*) jump, state->ctx);
+    state->curr_segment = create_mem_block_code(state->label_segment, (Segment*) jump, state->ctx);
 }
 // endregion
 

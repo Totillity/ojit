@@ -8,7 +8,7 @@
 #include "hash_table.h"
 
 #define FOREACH_INSTR(iter_var, iter_over) LAListIter iter_##iter_var; \
-                                           lalist_init_iter(&iter_##iter_var, (iter_over), sizeof(Instruction)); \
+                                           lalist_init_iter(&iter_##iter_var, (iter_over), 0, sizeof(Instruction)); \
                                            Instruction* iter_var; \
                                            while (((iter_var) = lalist_iter_next(&iter_##iter_var)) != NULL)
 
@@ -220,6 +220,7 @@ struct BlockIR {
     LAList* first_instrs;
     LAList* last_instrs;
     uint16_t num_instrs;
+    uint32_t block_index;
 
     union TerminatorIR terminator;
 
@@ -240,6 +241,7 @@ struct FunctionIR {
 
     struct BlockIR* first_block;
     struct BlockIR* last_block;
+    uint32_t num_blocks;
 
     void* compiled;
 };

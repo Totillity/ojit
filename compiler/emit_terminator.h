@@ -88,7 +88,7 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
 void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct BranchIR* branch = &terminator->ir_branch;
 
-    asm_emit_jmp(branch->target, state);  // comeback to this later after I've stitched everything together
+    asm_emit_jmp(branch->target->data, state);  // comeback to this later after I've stitched everything together
 
     resolve_branch(branch->target, state);
 }
@@ -99,9 +99,9 @@ void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator,
 #ifdef OJIT_OPTIMIZATIONS
     if (INSTR_TYPE(cbranch->cond) == ID_CMP_IR) {
         if (!IS_ASSIGNED(GET_REG(cbranch->cond))) {
-            asm_emit_jcc(IF_NOT_ZERO, cbranch->true_target, state);
+            asm_emit_jcc(IF_NOT_ZERO, cbranch->true_target->data, state);
             resolve_branch(cbranch->true_target, state);
-            asm_emit_jcc(INV_CMP(cbranch->cond->ir_cmp.cmp), cbranch->false_target, state);
+            asm_emit_jcc(INV_CMP(cbranch->cond->ir_cmp.cmp), cbranch->false_target->data, state);
             resolve_branch(cbranch->false_target, state);
             emit_cmp(cbranch->cond, state, false);
             return;
@@ -109,9 +109,9 @@ void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator,
     }
 #endif
 
-    asm_emit_jcc(IF_NOT_ZERO, cbranch->true_target, state);
+    asm_emit_jcc(IF_NOT_ZERO, cbranch->true_target->data, state);
     resolve_branch(cbranch->true_target, state);
-    asm_emit_jcc(IF_ZERO, cbranch->false_target, state);
+    asm_emit_jcc(IF_ZERO, cbranch->false_target->data, state);
     resolve_branch(cbranch->false_target, state);
 
     Register64 value_reg = instr_fetch_reg(cbranch->cond, NO_REG, state);

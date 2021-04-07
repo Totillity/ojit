@@ -10,7 +10,7 @@ enum Comparison inverted_cmp[16] = {
         [IF_GREATER_EQUAL-0x80] = 0x8C,
 };
 
-void init_block(struct BlockIR* block, MemCtx* ctx) {
+void init_block(struct BlockIR* block, uint32_t index, MemCtx* ctx) {
     block->first_instrs = block->last_instrs = lalist_grow(ctx, NULL, NULL);
     block->num_instrs = 0;
 
@@ -24,7 +24,7 @@ void init_block(struct BlockIR* block, MemCtx* ctx) {
 
 struct BlockIR* function_add_block(struct FunctionIR* func, MemCtx* ctx) {
     struct BlockIR* block = lalist_grow_add(&func->last_blocks, sizeof(struct BlockIR));
-    init_block(block, ctx);
+    init_block(block, func->num_blocks++, ctx);
     return block;
 }
 
