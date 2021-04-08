@@ -10,7 +10,7 @@
 
 void __attribute__((always_inline)) asm_emit_byte(uint8_t byte, struct AssemblerState* state) {
     if (state->curr_segment->base.max_size >= 512) {
-        state->curr_segment = create_mem_block_code(state->label_segment, state->curr_segment, state->ctx);
+        state->curr_segment = create_segment_code(state->label_segment, state->curr_segment, state->ctx);
     }
     state->curr_segment->base.max_size++;
     state->block_size++;
@@ -251,7 +251,7 @@ void __attribute__((always_inline)) asm_emit_jmp(Segment* jump_after, struct Ass
 
     state->block_size += 5;
 
-    state->curr_segment = create_mem_block_code(state->label_segment, (Segment*) jump, state->ctx);
+    state->curr_segment = create_segment_code(state->label_segment, (Segment*) jump, state->ctx);
 }
 
 void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, Segment* jump_after, struct AssemblerState* state) {
@@ -273,7 +273,7 @@ void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, Segment* 
 
     state->block_size += 6;
 
-    state->curr_segment = create_mem_block_code(state->label_segment, (Segment*) jump, state->ctx);
+    state->curr_segment = create_segment_code(state->label_segment, (Segment*) jump, state->ctx);
 }
 // endregion
 

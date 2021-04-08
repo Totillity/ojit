@@ -178,12 +178,19 @@ struct CompiledFunction stitch_segments(Segment* first_segment, MemCtx* ctx) {
         segment->base.offset_from_start -= saved_space;
         switch (segment->base.type) {
             case SEGMENT_JUMP: {
-                int32_t jump_dist = segment->jump.jump_to->base.offset_from_start - segment->base.offset_from_start;
-                if (jump_dist > -256 && jump_dist < 255) {
-                    segment->jump.is_short = true;
+                uint32_t jump_to = segment->jump.jump_to->base.offset_from_start;
+                if (jump_to > segment->base.offset_from_start + segment->base.max_size) {
+                    jump_to -= saved_space;
+                }
+                int32_t jump_dist = jump_to - (segment->base.offset_from_start + segment->base.max_size);
+                if (jump_dist == 0) {
+                    segment->base.final_size = 0;
+                    saved_space += segment->base.max_size;
+                } else if (jump_dist > -256 && jump_dist < 255) {
+                    segment->base.final_size = 2;
                     saved_space += segment->base.max_size - 2;
                 } else {
-                    segment->jump.is_short = false;
+                    segment->base.final_size = segment->base.max_size;
                 }
                 break;
             }
@@ -206,8 +213,10 @@ struct CompiledFunction stitch_segments(Segment* first_segment, MemCtx* ctx) {
             }
             case SEGMENT_JUMP: {
                 struct SegmentJump* jump = &segment->jump;
-                int32_t jump_dist = segment->jump.jump_to->base.offset_from_start - segment->base.offset_from_start;
-                if (jump->is_short) {
+                int32_t jump_dist = jump->jump_to->base.offset_from_start - (jump->base.offset_from_start + jump->base.final_size);
+                if (jump->base.final_size == 0) {
+
+                } else if (jump->base.final_size == 2) {
                     write_ptr[0] = jump->short_form[0];
                     write_ptr[1] = (uint8_t) jump_dist;
                 } else {
@@ -262,7 +271,8 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
     block = func->first_block;
     Segment* segment = NULL;
     while (block) {
-        segment = create_mem_block_code(block->data, segment, compiler_mem);
+        struct BlockIR* next_block = block->next_block;
+        segment = create_segment_code(block->data, next_block ? next_block->data : NULL, compiler_mem);
         init_asm_state(&state, block, segment, block->data);
 
         emit_terminator(&block->terminator, &state);
@@ -281,32 +291,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
         block = block->next_block;
     }
 
-    uint8_t* func_mem = ojit_alloc(compiler_mem, generated_size);
-    uint8_t* end_ptr = func_mem + generated_size;
-    uint8_t* write_ptr = end_ptr;
-
     return stitch_segments(first_label, compiler_mem);
-//
-//    struct SegmentJump* curr_jump = last_visited_jump;
-//    while (curr_jump) {
-//        if (curr_jump->is_short) {
-//            uint8_t* ptr = end_ptr - curr_jump->offset_from_end + 2;
-//            uint32_t jump_dist = (curr_jump->offset_from_end - 2) - GET_RECORD(curr_jump->target)->actual_offset_from_end;
-//            *(ptr - 1) = jump_dist & 0xFF;
-//        } else {
-//            uint8_t* ptr = end_ptr - curr_jump->offset_from_end + curr_jump->base.len;
-//            uint32_t jump_dist = (curr_jump->offset_from_end - curr_jump->base.len) - GET_RECORD(curr_jump->target)->actual_offset_from_end;
-//            *(ptr - 1) = (jump_dist >> 24) & 0xFF;
-//            *(ptr - 2) = (jump_dist >> 16) & 0xFF;
-//            *(ptr - 3) = (jump_dist >> 8) & 0xFF;
-//            *(ptr - 4) = (jump_dist >> 0) & 0xFF;
-//        }
-//        curr_jump = curr_jump->next_jump;
-//    }
-//
-//    uint32_t final_size = end_ptr - write_ptr;
-
-//    return (struct CompiledFunction) {write_ptr, 2000}; // TODO
 }
 
 #ifdef WIN32

@@ -33,7 +33,6 @@ struct SegmentLabel {
 
 struct SegmentJump {
     struct SegmentBase base;
-    bool is_short;
     uint8_t short_form[2];
     uint8_t long_form[6];
     struct SegmentLabel* jump_to;
@@ -115,7 +114,7 @@ Segment* create_segment_label(Segment* prev_block, Segment* next_block, MemCtx* 
     return (Segment*) segment;
 }
 
-Segment* create_mem_block_code(Segment* prev_block, Segment* next_block, MemCtx* ctx) {
+Segment* create_segment_code(Segment* prev_block, Segment* next_block, MemCtx* ctx) {
     struct SegmentCode* segment = ojit_alloc(ctx, sizeof(Segment));
     segment->base.max_size = 0;
     segment->base.final_size = 0;

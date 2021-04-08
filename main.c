@@ -26,8 +26,6 @@ int main() {
 
     OJITObject res = jit_call_function(jit, main_func, FuncType, 4);
 
-//    double t = time_function(jit, main_func, 3);
-//    printf("Value: %i, Time: %f ns\n", res, time_in_nsec);
     printf("Value: %llu\n", res);
     return 0;
 }
