@@ -242,6 +242,11 @@ struct CompiledFunction stitch_segments(Segment* first_segment, MemCtx* ctx) {
 }
 
 
+void ojit_jit_error(uint32_t val) {
+    printf("Error: %i\n", val);
+}
+
+
 struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* compiler_mem, struct GetFunctionCallback callback) {
 #ifdef OJIT_OPTIMIZATIONS
     ojit_optimize_func(func, callback);
@@ -249,11 +254,6 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
     dump_function(func);
 
     assign_function_parameters(func);
-
-    struct AssemblerState state;
-    state.writer.write_mem = compiler_mem;
-    state.jit_mem = create_mem_ctx(); // TODO bring this out
-    state.callback = callback;
 
     struct BlockIR* block = func->first_block;
     Segment* first_label;
@@ -264,12 +264,27 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
         block->data = prev_label;
         block = block->next_block;
     }
+    Segment* errs_label = create_segment_label(prev_label, NULL, compiler_mem);
+    Segment* err_return_label = create_segment_label(errs_label, NULL, compiler_mem);
+
+    struct AssemblerState state;
+    state.writer.write_mem = compiler_mem;
+    state.jit_mem = create_mem_ctx(); // TODO bring this out
+    state.callback = callback;
+    state.errs_label = errs_label;
+    state.err_return_label = err_return_label;
+
+    state.writer.curr = create_segment_code(err_return_label, NULL, compiler_mem);
+    state.writer.label = err_return_label;
+    asm_emit_call_r64(RAX, &state.writer);
+    asm_emit_sub_r64_i32(RSP, 32, &state.writer);
+    asm_emit_mov_r64_i64(RAX, (uint64_t) ojit_jit_error, &state.writer);
 
     block = func->first_block;
     Segment* segment = NULL;
     while (block) {
         struct BlockIR* next_block = block->next_block;
-        segment = create_segment_code(block->data, next_block ? next_block->data : NULL, compiler_mem);
+        segment = create_segment_code(block->data, next_block ? next_block->data : errs_label, compiler_mem);
         init_asm_state(&state, block, block->data, segment);
 
         emit_terminator(&block->terminator, &state);

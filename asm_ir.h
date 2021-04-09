@@ -27,7 +27,7 @@ enum Register64 {
     RBX = 0b0011,
 
     // We don't allow RSP and RBP to be used as registers
-    NO_REG = 0b0100,
+    RSP = 0b0100, NO_REG = 0b0100,
     SPILLED_REG = 0b0101,
 
     RSI = 0b0110,

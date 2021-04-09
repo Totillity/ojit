@@ -18,7 +18,7 @@ struct SegmentBase {
     uint32_t final_size;
     uint32_t offset_from_start;
 
-    union u_Segment* prev_block;
+    union u_Segment* prev_segment;
     union u_Segment* next_segment;
 };
 
@@ -55,6 +55,9 @@ struct AssemblerState {
     struct AssemblyWriter writer;
 
     struct BlockIR* block;
+
+    Segment* errs_label;
+    Segment* err_return_label;
 
     bool used_registers[16];
     enum Register64 swap_owner_of[16];
@@ -102,10 +105,10 @@ Segment* create_segment_label(Segment* prev_block, Segment* next_block, MemCtx* 
     segment->base.final_size = 0;
     segment->base.type = SEGMENT_LABEL;
 
-    segment->base.prev_block = prev_block;
+    segment->base.prev_segment = prev_block;
     segment->base.next_segment = next_block;
     if (next_block) {
-        next_block->base.prev_block = (Segment*) segment;
+        next_block->base.prev_segment = (Segment*) segment;
     }
     if (prev_block) {
         prev_block->base.next_segment = (Segment*) segment;
@@ -120,10 +123,10 @@ Segment* create_segment_code(Segment* prev_block, Segment* next_block, MemCtx* c
     segment->base.final_size = 0;
     segment->base.type = SEGMENT_CODE;
 
-    segment->base.prev_block = prev_block;
+    segment->base.prev_segment = prev_block;
     segment->base.next_segment = next_block;
     if (next_block) {
-        next_block->base.prev_block = (Segment*) segment;
+        next_block->base.prev_segment = (Segment*) segment;
     }
     if (prev_block) {
         prev_block->base.next_segment = (Segment*) segment;
@@ -137,10 +140,10 @@ Segment* create_mem_block_jump(Segment* prev_block, Segment* next_block, MemCtx*
     segment->base.final_size = 0;
     segment->base.type = SEGMENT_JUMP;
 
-    segment->base.prev_block = prev_block;
+    segment->base.prev_segment = prev_block;
     segment->base.next_segment = next_block;
     if (next_block) {
-        next_block->base.prev_block = (Segment*) segment;
+        next_block->base.prev_segment = (Segment*) segment;
     }
     if (prev_block) {
         prev_block->base.next_segment = (Segment*) segment;

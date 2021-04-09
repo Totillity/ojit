@@ -80,6 +80,7 @@ void __attribute__((always_inline)) asm_emit_mov_ir64_r64(Register64 in_dest, Re
 }
 
 void __attribute__((always_inline)) asm_emit_mov_r64_i64(Register64 dest, uint64_t constant, struct AssemblyWriter* writer) {
+    // TODO look into movzx instruction
 #ifdef OJIT_OPTIMIZATIONS
     if (constant == 0) {
         asm_emit_xor_r64_r64(dest, dest, writer);
@@ -233,7 +234,7 @@ void __attribute__((always_inline)) asm_emit_setcc(enum Comparison cond, enum Re
 
 void __attribute__((always_inline)) asm_emit_jmp(Segment* jump_after, struct AssemblyWriter* writer) {
 //#ifdef OJIT_OPTIMIZATIONS
-//    if (target->prev_block == state->block) return;
+//    if (target->prev_segment == state->block) return;
 //#endif
     struct SegmentJump* jump = (struct SegmentJump*) create_mem_block_jump(writer->label, writer->curr, writer->write_mem);
     jump->jump_to = (struct SegmentLabel*) jump_after;
@@ -252,7 +253,7 @@ void __attribute__((always_inline)) asm_emit_jmp(Segment* jump_after, struct Ass
 
 void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, Segment* jump_after, struct AssemblyWriter* writer) {
 //#ifdef OJIT_OPTIMIZATIONS
-//    if (target->prev_block == state->block) return;
+//    if (target->prev_segment == state->block) return;
 //#endif
     struct SegmentJump* jump = (struct SegmentJump*) create_mem_block_jump(writer->label, writer->curr, writer->write_mem);
     jump->jump_to = (struct SegmentLabel*) jump_after;

@@ -13,9 +13,9 @@
 //   B: Tag of the object (if it is one, otherwise its just double data)
 //       Tags:
 //           000: Pointer              (uses 48 bits)
-//           001: Unsigned Integer     (uses 32 bits)
-//           010: Signed Integer       (uses 32 bits)
-//           011-111: Other
+//           001: Signed Integer     (uses 32 bits)
+//           010: Undefined
+//           100: Undefined
 //   C: Payload. Size and usage vary based on type.
 
 void __attribute__((always_inline)) emit_wrap_int_i32(enum Register64 to_reg, uint32_t constant, struct AssemblerState* state) {
@@ -23,6 +23,21 @@ void __attribute__((always_inline)) emit_wrap_int_i32(enum Register64 to_reg, ui
     value += 0b001ull << 48;
     value += constant;
     asm_emit_mov_r64_i64(to_reg, value, &state->writer);
+}
+
+void __attribute__((always_inline)) emit_assert_int_i32(enum Register64 check_reg, struct AssemblerState* state) {
+    Segment* this_err_label = state->errs_label;
+    struct AssemblyWriter old_writer = state->writer;
+    state->writer.label = this_err_label;
+    Segment* err_segment = state->writer.curr = create_segment_code(this_err_label, state->err_return_label, state->writer.write_mem);
+    asm_emit_mov_r64_i64(RCX, 235, &state->writer);
+    state->writer = old_writer;
+
+    asm_emit_jcc(IF_NOT_EQUAL, this_err_label, &state->writer);
+    asm_emit_cmp_r64_i32(TMP_1_REG, 0b001, &state->writer);
+    asm_emit_shr_r64_i8(TMP_1_REG, 48, &state->writer);
+    asm_emit_mov_r64_r64(TMP_1_REG, check_reg, &state->writer);
+    state->errs_label = create_segment_label(err_segment, state->err_return_label, state->writer.write_mem);
 }
 
 // region Registers

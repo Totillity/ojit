@@ -41,6 +41,7 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
         }
         asm_emit_add_r64_i32(this_reg, constant, &state->writer);
         asm_emit_mov_r64_r64(this_reg, add_to, &state->writer);
+        emit_assert_int_i32(add_to, state);
         return;
     }
 #endif
@@ -49,7 +50,7 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
         // we need to copy a into primary_reg, then add b into it
         asm_emit_add_r64_r64(this_reg, b_register, &state->writer);
         asm_emit_mov_r64_r64(this_reg, a_register, &state->writer);
-        return;
+        goto emit_check;
     } else {
         Register64 primary_reg;  // the register we add into to get the result
         Register64 secondary_reg; // the register we add in
@@ -82,11 +83,14 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
                 asm_emit_add_r64_r64(this_reg, b_register, &state->writer);
                 asm_emit_mov_r64_r64(this_reg, a_register, &state->writer);
             }
-            return;
+            goto emit_check;
         }
         asm_emit_add_r64_r64(primary_reg, secondary_reg, &state->writer);
-        return;
+        goto emit_check;
     }
+    emit_check:
+    emit_assert_int_i32(b_register, state);
+    emit_assert_int_i32(a_register, state);
 }
 
 void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct AssemblerState* state) {
