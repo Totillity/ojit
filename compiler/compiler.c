@@ -251,7 +251,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
     assign_function_parameters(func);
 
     struct AssemblerState state;
-    state.ctx = compiler_mem;
+    state.writer.write_mem = compiler_mem;
     state.jit_mem = create_mem_ctx(); // TODO bring this out
     state.callback = callback;
 
@@ -270,7 +270,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
     while (block) {
         struct BlockIR* next_block = block->next_block;
         segment = create_segment_code(block->data, next_block ? next_block->data : NULL, compiler_mem);
-        init_asm_state(&state, block, segment, block->data);
+        init_asm_state(&state, block, block->data, segment);
 
         emit_terminator(&block->terminator, &state);
 

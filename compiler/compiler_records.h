@@ -45,25 +45,29 @@ typedef union u_Segment {
     struct SegmentLabel label;
 } Segment;
 
-struct AssemblerState {
-    struct BlockIR* block;
+struct AssemblyWriter {
+    Segment* label;
+    Segment* curr;
+    MemCtx* write_mem;
+};
 
-    Segment* label_segment;
-    Segment* curr_segment;
+struct AssemblerState {
+    struct AssemblyWriter writer;
+
+    struct BlockIR* block;
 
     bool used_registers[16];
     enum Register64 swap_owner_of[16];
     enum Register64 swap_contents[16];
 
     MemCtx* jit_mem;
-    MemCtx* ctx;
     struct GetFunctionCallback callback;
 };
 
-void init_asm_state(struct AssemblerState* state, struct BlockIR* block, Segment* curr_mem, Segment* label_segment) {
+void init_asm_state(struct AssemblerState* state, struct BlockIR* block, Segment* label, Segment* curr) {
     state->block = block;
-    state->curr_segment = curr_mem;
-    state->label_segment = label_segment;
+    state->writer.curr = curr;
+    state->writer.label = label;
 
     // Windows makes you assume the registers RBX, RSI, RDI, RBP, R12-R15 are used
     // Additionally, we assumed RBP, RSP, R12, and R13 are used because it's a pain to use them
@@ -90,8 +94,6 @@ void init_asm_state(struct AssemblerState* state, struct BlockIR* block, Segment
         state->swap_owner_of[i] = i;
         state->swap_contents[i] = i;
     }
-
-    state->block_size = 0;
 }
 
 Segment* create_segment_label(Segment* prev_block, Segment* next_block, MemCtx* ctx) {

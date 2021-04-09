@@ -22,7 +22,7 @@ void __attribute__((always_inline)) emit_wrap_int_i32(enum Register64 to_reg, ui
     uint64_t value = 0;
     value += 0b001ull << 48;
     value += constant;
-    asm_emit_mov_r64_i64(to_reg, value, state);
+    asm_emit_mov_r64_i64(to_reg, value, &state->writer);
 }
 
 // region Registers
