@@ -24,8 +24,8 @@ int main() {
     JITFunc main_func = jit_get_function(jit, "main", 4);
     jit_dump_function(jit, main_func, stdout);
 
-    OJITObject res = jit_call_function(jit, main_func, FuncType, 1);
+    OJITObject res = jit_call_function(jit, main_func, FuncType, INT_AS_OBJ(1));
 
-    printf("Value: %llu\n", res);
+    printf("Value: %i\n", OBJ_AS_INT(res));
     return 0;
 }
