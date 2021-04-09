@@ -50,10 +50,8 @@ struct AssemblerState {
 
     Segment* label_segment;
     Segment* curr_segment;
-    uint32_t segment_count;
 
     bool used_registers[16];
-    uint32_t block_size;
     enum Register64 swap_owner_of[16];
     enum Register64 swap_contents[16];
 

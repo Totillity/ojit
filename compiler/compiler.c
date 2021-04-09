@@ -254,9 +254,6 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
     state.ctx = compiler_mem;
     state.jit_mem = create_mem_ctx(); // TODO bring this out
     state.callback = callback;
-    state.segment_count = 0;
-
-    size_t generated_size = 0;
 
     struct BlockIR* block = func->first_block;
     Segment* first_label;
@@ -287,7 +284,6 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
             k += 1;
         }
 
-        generated_size += state.block_size;
         block = block->next_block;
     }
 
