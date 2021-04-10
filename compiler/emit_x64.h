@@ -150,6 +150,27 @@ void __attribute__((always_inline)) asm_emit_add_r64_i32(Register64 source, uint
     asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), writer);
 }
 
+void __attribute__((always_inline)) asm_emit_add_r32_i32(Register32 source, uint32_t constant, struct AssemblyWriter* writer) {
+#ifdef OJIT_OPTIMIZATIONS
+    if (constant <= UINT8_MAX) {
+        asm_emit_int8(constant, writer);
+        asm_emit_byte(MODRM(0b11, 0, source & 0b0111), writer);
+        asm_emit_byte(0x83, writer);
+        if (source >> 3 & 0b0001) asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), writer);
+        return;
+    }
+    if (source == RAX) {
+        asm_emit_int32(constant, writer);
+        asm_emit_byte(0x05, writer);
+        return;
+    }
+#endif
+    asm_emit_int32(constant, writer);
+    asm_emit_byte(MODRM(0b11, 0, source & 0b0111), writer);
+    asm_emit_byte(0x81, writer);
+    if (source >> 3 & 0b0001) asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), writer);
+}
+
 void __attribute__((always_inline)) asm_emit_sub_r64_r64(Register64 dest, Register64 source, struct AssemblyWriter* writer) {
     asm_emit_byte(MODRM(0b11, source & 0b111, dest & 0b0111), writer);
     asm_emit_byte(0x29, writer);
@@ -206,9 +227,37 @@ void __attribute__((always_inline)) asm_emit_cmp_r64_i32(Register64 source, uint
     asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), writer);
 }
 
+void __attribute__((always_inline)) asm_emit_cmp_r32_i32(Register32 source, uint32_t constant, struct AssemblyWriter* writer) {
+#ifdef OJIT_OPTIMIZATIONS
+    if (constant <= UINT8_MAX) {
+        asm_emit_int8(constant, writer);
+        asm_emit_byte(MODRM(0b11, 7, source & 0b0111), writer);
+        asm_emit_byte(0x83, writer);
+        if (source >> 3 & 0b0001) asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), writer);
+        return;
+    }
+    if (source == RAX) {
+        asm_emit_int32(constant, writer);
+        asm_emit_byte(0x3D, writer);
+        return;
+    }
+#endif
+    asm_emit_int32(constant, writer);
+    asm_emit_byte(MODRM(0b11, 7, source & 0b0111), writer);
+    asm_emit_byte(0x81, writer);
+    if (source >> 3 & 0b0001) asm_emit_byte(REX(0b0, 0b0, 0b0, source >> 3 & 0b0001), writer);
+}
+
 void __attribute__((always_inline)) asm_emit_shr_r64_i8(Register64 source, uint8_t constant, struct AssemblyWriter* writer) {
     asm_emit_int8(constant, writer);
     asm_emit_byte(MODRM(0b11, 5, source & 0b0111), writer);
+    asm_emit_byte(0xC1, writer);
+    asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), writer);
+}
+
+void __attribute__((always_inline)) asm_emit_sar_r64_i8(Register64 source, uint8_t constant, struct AssemblyWriter* writer) {
+    asm_emit_int8(constant, writer);
+    asm_emit_byte(MODRM(0b11, 7, source & 0b0111), writer);
     asm_emit_byte(0xC1, writer);
     asm_emit_byte(REX(0b1, 0b0, 0b0, source >> 3 & 0b0001), writer);
 }

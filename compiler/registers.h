@@ -18,19 +18,21 @@
 //           100: Undefined
 //   C: Payload. Size and usage vary based on type.
 
-void __attribute__((always_inline)) emit_wrap_int_i32(enum Register64 to_reg, uint32_t constant, struct AssemblerState* state) {
+void __attribute__((always_inline)) emit_wrap_int_i32(Register64 to_reg, uint32_t constant, struct AssemblerState* state) {
     uint64_t value = 0;
     value += 0b001ull << 48;
     value += constant;
     asm_emit_mov_r64_i64(to_reg, value, &state->writer);
 }
 
-void __attribute__((always_inline)) emit_assert_int_i32(enum Register64 check_reg, struct AssemblerState* state) {
+void __attribute__((always_inline)) emit_assert_int_i32(Register64 check_reg, struct AssemblerState* state) {
     Segment* this_err_label = state->errs_label;
     struct AssemblyWriter old_writer = state->writer;
     state->writer.label = this_err_label;
     Segment* err_segment = state->writer.curr = create_segment_code(this_err_label, state->err_return_label, state->writer.write_mem);
-    asm_emit_mov_r64_i64(RCX, 235, &state->writer);
+    asm_emit_jmp(state->err_return_label, &state->writer);
+//    asm_emit_mov_r64_i64(RCX, ((uint64_t) this_err_label) & 0xFF, &state->writer);
+    asm_emit_mov_r64_r64(RCX, RCX, &state->writer);
     state->writer = old_writer;
 
     asm_emit_jcc(IF_NOT_EQUAL, this_err_label, &state->writer);

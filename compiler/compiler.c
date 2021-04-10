@@ -242,8 +242,8 @@ struct CompiledFunction stitch_segments(Segment* first_segment, MemCtx* ctx) {
 }
 
 
-void ojit_jit_error(uint32_t val) {
-    printf("Error: %i\n", val);
+void ojit_jit_error(uint64_t val) {
+    printf("Error: %llu\n", val);
 }
 
 
@@ -276,6 +276,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 
     state.writer.curr = create_segment_code(err_return_label, NULL, compiler_mem);
     state.writer.label = err_return_label;
+    asm_emit_add_r32_i32(RSP, 32, &state.writer);
     asm_emit_call_r64(RAX, &state.writer);
     asm_emit_sub_r64_i32(RSP, 32, &state.writer);
     asm_emit_mov_r64_i64(RAX, (uint64_t) ojit_jit_error, &state.writer);

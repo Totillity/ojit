@@ -192,7 +192,8 @@ void __attribute__((always_inline)) emit_cmp(Instruction* instruction, struct As
             constant = instr->b->ir_int.constant;
         }
         if (store) asm_emit_setcc(instr->cmp, this_reg, &state->writer);
-        asm_emit_cmp_r64_i32(cmp_with, constant, &state->writer);
+        asm_emit_cmp_r32_i32(cmp_with, constant, &state->writer);
+        emit_assert_int_i32(cmp_with, state);
         return;
     }
 #endif

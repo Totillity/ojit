@@ -28,7 +28,7 @@ enum Register64 {
 
     // We don't allow RSP and RBP to be used as registers
     RSP = 0b0100, NO_REG = 0b0100,
-    SPILLED_REG = 0b0101,
+    RBP = 0b0101, SPILLED_REG = 0b0101,
 
     RSI = 0b0110,
     RDI = 0b0111,
@@ -39,13 +39,14 @@ enum Register64 {
 
     // We also_lvalue don't allow R12 and R13 to be used as general purpose registers
     // Instead, reserve it for ourselves
-    TMP_1_REG = 0b1100,
-    TMP_2_REG = 0b1101,
+    R12 = 0b1100, TMP_1_REG = 0b1100,
+    R13 = 0b1101, TMP_2_REG = 0b1101,
 
     R14 = 0b1110,
     R15 = 0b1111,
 };
 typedef enum Register64 Register64;
+typedef enum Register64 Register32;
 
 #define IS_ASSIGNED(reg) (((reg) & 0b1111) != NO_REG)
 // endregion
