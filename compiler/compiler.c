@@ -270,7 +270,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 
     struct AssemblerState state;
     state.writer.write_mem = compiler_mem;
-    state.jit_mem = create_mem_ctx(); // TODO bring this out
+    state.jit_mem = create_mem_ctx();
     state.callback = callback;
     state.errs_label = errs_label;
     state.err_return_label = err_return_label;

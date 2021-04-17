@@ -51,7 +51,11 @@ String string_table_add(struct StringTable* table, char* ptr, uint32_t length) {
 }
 
 String read_file(struct StringTable* table, char* path) {
-    FILE* file = fopen(path, "r"); // TODO check for null
+    FILE* file = fopen(path, "r");
+    if (file == NULL) {
+        printf("Path is not valid.\n");
+        return NULL;
+    }
     fseek(file, 0L, SEEK_END);
     size_t file_size = ftell(file);
     rewind(file);

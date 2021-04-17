@@ -20,12 +20,15 @@ double time_function(JIT* jit, JITFunc func, int arg) {
 
 int main() {
     JIT* jit = ojit_create_jit();
-    jit_add_file(jit, "test.txt");
-    JITFunc main_func = jit_get_function(jit, "main", 4);
-    jit_dump_function(jit, main_func, stdout);
+    bool success = jit_add_file(jit, "test.txt");
+    if (success) {
+        JITFunc main_func = jit_get_function(jit, "main", 4);
+        jit_dump_function(jit, main_func, stdout);
 
-    OJITObject arg = INT_AS_OBJ(1);
-    OJITObject res = jit_call_function(jit, main_func, FuncType, arg);
-    printf("Value: %i\n", OBJ_AS_INT(res));
+        OJITObject arg = INT_AS_OBJ(1);
+        OJITObject res = jit_call_function(jit, main_func, FuncType, arg);
+
+        printf("Value: %i\n", OBJ_AS_INT(res));
+    }
     return 0;
 }

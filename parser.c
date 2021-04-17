@@ -283,7 +283,7 @@ Token lexer_peek_token(struct Lexer* lexer) {
     if (lexer->is_next_lexed) {
         return lexer->next_token;
     } else {
-        if (lexer_at_end(lexer)) {  // TODO find a more efficient way to do this
+        if (lexer_at_end(lexer)) {
             lexer->start = lexer->curr;
             return lexer_emit_token(lexer, TOKEN_EOF);
         }
@@ -304,7 +304,7 @@ Token lexer_peek_token(struct Lexer* lexer) {
                 curr = lexer_advance(lexer);
             }
             return lexer_emit_token(lexer, TOKEN_NUMBER);
-        } else if (lexer_at_end(lexer)) {  // TODO find a more efficient way to do this and fold these two copies
+        } else if (lexer_at_end(lexer)) {
             return lexer_emit_token(lexer, TOKEN_EOF);
         } else {
             ojit_error();
@@ -595,7 +595,6 @@ IRValue parse_assign(Parser* parser) {
     IRValue expr = parse_compare(parser);
     if (parser_peek_is(parser, TOKEN_EQUAL)) {
         parser_expect(parser, TOKEN_EQUAL);
-        // TODO add check here so it doesn't just fail
         IRValue right = parse_assign(parser);
         expr = lvalue_set(parser, right);
     }

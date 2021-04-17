@@ -16,12 +16,17 @@ JIT* ojit_create_jit() {
 }
 
 
-void jit_add_file(JIT* jit, char* file_name) {
+bool jit_add_file(JIT* jit, char* file_name) {
     String source = read_file(&jit->strings, file_name);
-    MemCtx* parser_mem = create_mem_ctx();
-    Parser* parser = create_parser(source, &jit->strings, &jit->function_records, jit->ir_mem, parser_mem);
-    parser_parse_source(parser);
-    destroy_mem_ctx(parser_mem);
+    if (source) {
+        MemCtx* parser_mem = create_mem_ctx();
+        Parser* parser = create_parser(source, &jit->strings, &jit->function_records, jit->ir_mem, parser_mem);
+        parser_parse_source(parser);
+        destroy_mem_ctx(parser_mem);
+        return true;
+    } else {
+        return false;
+    }
 }
 
 
