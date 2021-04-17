@@ -311,7 +311,7 @@ Token lexer_peek_token(struct Lexer* lexer) {
             ojit_build_error_chars("Error: Unrecognized character ");
             ojit_build_error_char(curr);
             ojit_error();
-            exit(0);
+            exit(-1);
         }
     }
 }
@@ -399,8 +399,8 @@ Token parser_expect(Parser* parser, enum TokenType type) {
         ojit_build_error_chars(", got ");
         ojit_build_error_chars(get_token_name(token.type));
         ojit_error();
-        ojit_exit(0);
-        exit(0);
+        ojit_exit(-1);
+        exit(-1);
     }
 }
 
@@ -442,7 +442,7 @@ IRValue lvalue_set(Parser* parser, IRValue to_value) {
 //        }
         ojit_build_error_chars("Attempted to access the lvalue of something which doesn't have one.");
         ojit_error();
-        exit(0);
+        exit(-1);
     }
 }
 
@@ -489,7 +489,7 @@ IRValue parse_terminal(Parser* parser) {
             ojit_build_error_chars("Unexpected token: ");
             ojit_build_error_chars(get_token_name(curr.type));
             ojit_error();
-            exit(0);
+            exit(-1);
         }
     }
 }
@@ -754,7 +754,7 @@ void parser_parse_source(Parser* parser) {
                 ojit_build_error_chars(" with text ");
                 ojit_build_error_String(curr_token.text);
                 ojit_error();
-                exit(0);
+                exit(-1);
         }
         curr_token = lexer_peek_token(lexer);
     }

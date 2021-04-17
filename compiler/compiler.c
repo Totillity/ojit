@@ -148,7 +148,7 @@ void assign_function_parameters(struct FunctionIR* func) {
     int param_num = 0;
     FOREACH_INSTR(instr, first_block->first_instrs) {
         if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
-            enum Register64 reg;
+            enum Registers reg;
             switch (param_num) {
                 case 0: reg = RCX; break;
                 case 1: reg = RDX; break;
@@ -156,7 +156,7 @@ void assign_function_parameters(struct FunctionIR* func) {
                 case 3: reg = R9; break;
                 default: exit(-1);  // TODO
             }
-            instr->ir_parameter.entry_reg = reg;
+            instr->ir_parameter.entry_loc = WRAP_REG(reg);
             param_num += 1;
         }
     }
@@ -244,6 +244,7 @@ struct CompiledFunction stitch_segments(Segment* first_segment, MemCtx* ctx) {
 
 void ojit_jit_error(uint64_t val) {
     printf("Error: %llu\n", val);
+    ojit_exit(-1);
 }
 
 
@@ -276,7 +277,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 
     state.writer.curr = create_segment_code(err_return_label, NULL, compiler_mem);
     state.writer.label = err_return_label;
-    asm_emit_add_r32_i32(RSP, 32, &state.writer);
+    asm_emit_add_r64_i32(RSP, 32, &state.writer);
     asm_emit_call_r64(RAX, &state.writer);
     asm_emit_sub_r64_i32(RSP, 32, &state.writer);
     asm_emit_mov_r64_i64(RAX, (uint64_t) ojit_jit_error, &state.writer);
@@ -293,12 +294,25 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
         LAListIter instr_iter;
         lalist_init_iter(&instr_iter, block->last_instrs, block->last_instrs->len, sizeof(Instruction));
         Instruction* instr = lalist_iter_prev(&instr_iter);
-        int k = 0;
         while (instr) {
+            if (INSTR_TYPE(instr) == ID_BLOCK_PARAMETER_IR) break;
             emit_instruction(instr, &state);
+            instr = lalist_iter_prev(&instr_iter);
+        }
+        int k = 0;
+        VLoc* swap_from[block->num_params];
+        VLoc* swap_to[block->num_params];
+        while (instr) {
+            if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
+                struct ParameterIR* param = &instr->ir_parameter;
+                if (param->base.refs == 0) continue;
+                swap_to[k] = &GET_LOC(param);
+                swap_from[k] = &param->entry_loc;
+            }
             instr = lalist_iter_prev(&instr_iter);
             k += 1;
         }
+        map_registers(swap_from, swap_to, block->num_params, &state.writer);
 
         block = block->next_block;
     }
@@ -326,7 +340,7 @@ void* copy_to_executable(void* from, size_t len) {
         ojit_new_error();
         ojit_build_error_chars("Failed to move generated code to executable memory.\n");
         ojit_error();
-        exit(0);
+        exit(-1);
     }
 
     return mem;

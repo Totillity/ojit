@@ -6,45 +6,33 @@
 
 void __attribute__((always_inline)) emit_return(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct ReturnIR* ret = &terminator->ir_return;
-    Register64 value_reg = instr_fetch_reg(ret->value, RAX, state);
     asm_emit_byte(0xC3, &state->writer);
-    if (value_reg != RAX) {
-        asm_emit_mov_r64_r64(RAX, value_reg, &state->writer);
-    }
+    assign_loc(&GET_LOC(ret->value), WRAP_REG(RAX), state);
+    asm_emit_mov(WRAP_REG(RAX), GET_LOC(ret->value), &state->writer);
 }
 
-Register64 __attribute__((always_inline)) find_target_reg(bool* target_registers, Register64 suggestion, struct AssemblerState* state) {
-    if (!target_registers[suggestion]) return suggestion;
-    for (Register64 reg = 0; reg < 16; reg++) {
-        if (!target_registers[reg] && !state->used_registers[reg]) {
-            return reg;
-        }
+
+bool vloc_list_contains(VLoc** list, uint32_t num_items, VLoc item) {
+    for (int i = 0; i < num_items; i++) {
+        if (list[i] && loc_equal(*list[i], item)) return true;
     }
-    ojit_new_error();
-    ojit_build_error_chars("Too many registers used concurrently");
-    ojit_exit(-1);
-    exit(-1);
+    return false;
 }
 
 void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struct AssemblerState* state) {
-    bool target_registers[16] = {
-            [RAX] = false,
-            [RCX] = false,
-            [RDX] = false,
-            [RBX] = false,
-            [NO_REG]      = true,
-            [SPILLED_REG] = true,
-            [RSI] = false,
-            [RDI] = false,
-            [R8]  = false,
-            [R9]  = false,
-            [R10] = false,
-            [R11] = false,
-            [TMP_1_REG]   = true,
-            [TMP_2_REG]   = true,
-            [R14] = false,
-            [R15] = false,
-    };
+    VLoc* swap_from[target->num_params];
+    VLoc* swap_to[target->num_params];
+
+//    uint64_t target_locs = UINT64_MAX ^ (
+//            (1 << RBX) |
+//            (1 << NO_REG) |
+//            (1 << SPILLED_REG) |
+//            (1 << RSI) |
+//            (1 << RDI) |
+//            (1 << TMP_1_REG) |
+//            (1 << TMP_2_REG)
+//    );
+    VLoc* target_locs[target->num_params]; for (int i = 0; i < target->num_params; i++) target_locs[i] = NULL;
 
     FOREACH_INSTR(instr, target->first_instrs) {
         if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
@@ -53,36 +41,31 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
             IRValue argument;
             hash_table_get(&state->block->variables, STRING_KEY(param->var_name), (uint64_t*) &argument);
 
-            Register64 param_reg = param->entry_reg;
-            Register64 argument_reg = GET_REG(argument);
-
-            if (IS_ASSIGNED(param_reg)) {
-                if (REG_IS_MARKED(param_reg)) {
-                    // TODO oh god not again
-                    ojit_new_error();
-                    ojit_build_error_chars("something here also used the register the argument needs to go into");
-                    ojit_exit(-1);
-                    exit(-1);
+            assign_loc(&GET_LOC(argument), param->entry_loc, state);
+            VLoc* arg_loc = &GET_LOC(argument);
+            VLoc* param_loc = &param->entry_loc;
+            if (!IS_ASSIGNED(*param_loc)) {
+                *param_loc = *arg_loc;
+                if (vloc_list_contains(target_locs, target->num_params, *arg_loc)) {
+                    if (!vloc_list_contains(target_locs, target->num_params, WRAP_REG(RAX))) {*param_loc = WRAP_REG(RAX); goto done;}
+                    if (!vloc_list_contains(target_locs, target->num_params, WRAP_REG(RCX))) {*param_loc = WRAP_REG(RCX); goto done;}
+                    if (!vloc_list_contains(target_locs, target->num_params, WRAP_REG(RDX))) {*param_loc = WRAP_REG(RDX); goto done;}
+                    if (!vloc_list_contains(target_locs, target->num_params, WRAP_REG(R8))) {*param_loc = WRAP_REG(R8); goto done;}
+                    if (!vloc_list_contains(target_locs, target->num_params, WRAP_REG(R9))) {*param_loc = WRAP_REG(R9); goto done;}
+                    if (!vloc_list_contains(target_locs, target->num_params, WRAP_REG(R10))) {*param_loc = WRAP_REG(R10); goto done;}
+                    if (!vloc_list_contains(target_locs, target->num_params, WRAP_REG(R11))) {*param_loc = WRAP_REG(R11); goto done;}
+                    ojit_exit(57);
                 }
-            } else {
-                if (!IS_ASSIGNED(argument_reg) && INSTR_TYPE(argument) == ID_BLOCK_PARAMETER_IR && argument->ir_parameter.entry_reg != NO_REG) {
-//                    argument_reg = ;
-                    argument_reg = instr_fetch_reg(argument, argument->ir_parameter.entry_reg, state);
-//                    instr_assign_reg(argument, argument_reg);
-//                    mark_register(argument_reg, state);
-                }
-                param_reg = find_target_reg(target_registers, argument_reg, state);
-                target_registers[param_reg] = true;
-                param->entry_reg = param_reg;
             }
-            if (!IS_ASSIGNED(argument_reg)) {
-                argument_reg = instr_fetch_reg(argument, param_reg, state);
-            }
-            asm_emit_mov_r64_r64(param_reg, argument_reg, &state->writer);
+            done:
+            swap_from[instr->base.index] = arg_loc;
+            swap_to[instr->base.index] = param_loc;
         } else {
             break;
         }
     }
+
+    map_registers(swap_from, swap_to, target->num_params, &state->writer);
 }
 
 void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, struct AssemblerState* state) {
@@ -98,7 +81,7 @@ void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator,
 
 #ifdef OJIT_OPTIMIZATIONS
     if (INSTR_TYPE(cbranch->cond) == ID_CMP_IR) {
-        if (!IS_ASSIGNED(GET_REG(cbranch->cond))) {
+        if (!IS_ASSIGNED(GET_LOC(cbranch->cond))) {
             asm_emit_jcc(IF_NOT_ZERO, cbranch->true_target->data, &state->writer);
             resolve_branch(cbranch->true_target, state);
             asm_emit_jcc(INV_CMP(cbranch->cond->ir_cmp.cmp), cbranch->false_target->data, &state->writer);
@@ -114,8 +97,9 @@ void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator,
     asm_emit_jcc(IF_ZERO, cbranch->false_target->data, &state->writer);
     resolve_branch(cbranch->false_target, state);
 
-    Register64 value_reg = instr_fetch_reg(cbranch->cond, NO_REG, state);
-    asm_emit_test_r64_r64(value_reg, value_reg, &state->writer);
+    enum Registers reg = postload_loc(&GET_LOC(cbranch->cond), WRAP_NONE(), state);
+    asm_emit_test_r64_r64(reg, reg, &state->writer);
+    load_loc(&GET_LOC(cbranch->cond), state);
 }
 
 void __attribute__((always_inline)) emit_terminator(union TerminatorIR* terminator_ir, struct AssemblerState* state) {

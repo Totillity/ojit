@@ -7,233 +7,149 @@
 // region Emit Instructions
 void __attribute__((always_inline)) emit_int(Instruction* instruction, struct AssemblerState* state) {
     struct IntIR* instr = &instruction->ir_int;
-    if (IS_ASSIGNED(GET_REG(instr))) {
-//        asm_emit_mov_r64_i64(GET_REG(instr), instr->constant, state);
-        emit_wrap_int_i32(GET_REG(instr), instr->constant, state);
-        unmark_register(instr->base.reg, state);
+    if (IS_ASSIGNED(GET_LOC(instr))) {
+        emit_wrap_int_i32(&GET_LOC(instr), instr->constant, state);
+        unmark_loc(GET_LOC(instr), state);
     }
 }
 
 void __attribute__((always_inline)) emit_add(Instruction* instruction, struct AssemblerState* state) {
     struct AddIR* instr = &instruction->ir_add;
+    struct AssemblyWriter* writer = &state->writer;
 
-    if (!IS_ASSIGNED(GET_REG(instr))) return;
-    Register64 this_reg = GET_REG(instr);
-
-    Register64 a_register = GET_REG(instr->a);
-    Register64 b_register = GET_REG(instr->b);
-    bool a_assigned = IS_ASSIGNED(a_register);
-    bool b_assigned = IS_ASSIGNED(b_register);
-
+    if (!IS_ASSIGNED(GET_LOC(instr))) return;
+    VLoc this_loc = GET_LOC(instr);
     // by unmarking the register the result is stored in, we can use it as the register of one of the arguments
-    unmark_register(this_reg, state);
+    unmark_loc(this_loc, state);
 
 #ifdef OJIT_OPTIMIZATIONS
     if (INSTR_TYPE(instr->a) == ID_INT_IR || INSTR_TYPE(instr->b) == ID_INT_IR) {
-        Register64 add_to;
+        VLoc add_to;
         uint32_t constant;
         if (INSTR_TYPE(instr->a) == ID_INT_IR) {
-            add_to = instr_fetch_reg(instr->b, this_reg, state);
+            add_to = *assign_loc(&GET_LOC(instr->b), this_loc, state);
             constant = instr->a->ir_int.constant;
         } else {
-            add_to = instr_fetch_reg(instr->a, this_reg, state);
+            add_to = *assign_loc(&GET_LOC(instr->a), this_loc, state);
             constant = instr->b->ir_int.constant;
         }
-        asm_emit_add_r64_i32(this_reg, constant, &state->writer);
-        asm_emit_mov_r64_r64(this_reg, add_to, &state->writer);
+        enum Registers tmp_reg = store_loc(&this_loc, WRAP_NONE(), state);
+        asm_emit_add_r64_i32(tmp_reg, constant, &state->writer);
+        load_loc(&this_loc, state);
+        asm_emit_mov(this_loc, add_to, writer);
         emit_assert_int_i32(add_to, state);
         return;
     }
 #endif
+    VLoc a_loc = *assign_loc(&GET_LOC(instr->a), this_loc, state);
+    VLoc b_loc = *assign_loc(&GET_LOC(instr->b), this_loc, state);
 
-    if (a_assigned && b_assigned) {
-        // we need to copy a into primary_reg, then add b into it
-        asm_emit_add_r64_r64(this_reg, b_register, &state->writer);
-        asm_emit_mov_r64_r64(this_reg, a_register, &state->writer);
-        goto emit_check;
+    if (loc_equal(a_loc, this_loc)) {
+        asm_emit_add(this_loc, WRAP_REG(TMP_1_REG), writer);
+        asm_emit_mov32(WRAP_REG(TMP_1_REG), b_loc, writer);
+    } else if (loc_equal(b_loc, this_loc)) {
+        asm_emit_add(this_loc, WRAP_REG(TMP_1_REG), writer);
+        asm_emit_mov32(WRAP_REG(TMP_1_REG), a_loc, writer);
     } else {
-        Register64 primary_reg;  // the register we add into to get the result
-        Register64 secondary_reg; // the register we add in
-
-        if (a_assigned) {
-            // use b as our primary register which is added into and contains the result
-            // after all, this is b's last (or first) use, so it's safe
-            instr_assign_reg(instr->b, this_reg);
-            mark_register(this_reg, state);
-            primary_reg = this_reg;
-            secondary_reg = a_register;
-        } else if (b_assigned) {
-            // use a as our primary register which is added into and contains the result
-            // after all, this is a's last (or first) use, so it's safe
-            instr_assign_reg(instr->a, this_reg);
-            mark_register(this_reg, state);
-            primary_reg = this_reg;
-            secondary_reg = b_register;
-        } else {
-            a_register = instr_fetch_reg(instr->a, this_reg, state);
-            b_register = instr_fetch_reg(instr->b, this_reg, state);
-            if (a_register == this_reg || b_register == this_reg) {
-                if (a_register == this_reg) {
-                    secondary_reg = b_register;
-                } else {
-                    secondary_reg = a_register;
-                }
-                asm_emit_add_r64_r64(this_reg, secondary_reg, &state->writer);
-            } else {
-                asm_emit_add_r64_r64(this_reg, b_register, &state->writer);
-                asm_emit_mov_r64_r64(this_reg, a_register, &state->writer);
-            }
-            goto emit_check;
-        }
-        asm_emit_add_r64_r64(primary_reg, secondary_reg, &state->writer);
-        goto emit_check;
+        asm_emit_add(this_loc, b_loc, writer);
+        asm_emit_mov32(this_loc, a_loc, writer);
     }
-    emit_check:
-    emit_assert_int_i32(b_register, state);
-    emit_assert_int_i32(a_register, state);
+
+    emit_assert_int_i32(a_loc, state);
+    emit_assert_int_i32(b_loc, state);
 }
 
 void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct AssemblerState* state) {
     struct SubIR* instr = &instruction->ir_sub;
+    struct AssemblyWriter* writer = &state->writer;
 
-    if (!IS_ASSIGNED(GET_REG(instr))) return;
-    Register64 this_reg = GET_REG(instr);
+    if (!IS_ASSIGNED(GET_LOC(instr))) return;
+    VLoc this_loc = GET_LOC(instr);
     // by unmarking the register the result is stored in, we can use it as the register of one of the arguments
-    unmark_register(this_reg, state);
-
-    Register64 a_register = GET_REG(instr->a);
-    Register64 b_register = GET_REG(instr->b);
-    bool a_assigned = IS_ASSIGNED(a_register);
-    bool b_assigned = IS_ASSIGNED(b_register);
+    unmark_loc(this_loc, state);
 
 #ifdef OJIT_OPTIMIZATIONS
     if (INSTR_TYPE(instr->a) == ID_INT_IR || INSTR_TYPE(instr->b) == ID_INT_IR) {
-        Register64 sub_from;
+        VLoc* add_to;
         uint32_t constant;
         if (INSTR_TYPE(instr->a) == ID_INT_IR) {
-            sub_from = instr_fetch_reg(instr->b, this_reg, state);
+            add_to = assign_loc(&GET_LOC(instr->b), this_loc, state);
             constant = instr->a->ir_int.constant;
         } else {
-            sub_from = instr_fetch_reg(instr->a, this_reg, state);
+            add_to = assign_loc(&GET_LOC(instr->a), this_loc, state);
             constant = instr->b->ir_int.constant;
         }
-        asm_emit_sub_r64_i32(this_reg, constant, &state->writer);
-        asm_emit_mov_r64_r64(this_reg, sub_from, &state->writer);
+        enum Registers tmp_reg = store_loc(&this_loc, WRAP_NONE(), state);
+        asm_emit_sub_r64_i32(tmp_reg, constant, &state->writer);
+        load_loc(&this_loc, state);
+        asm_emit_mov(this_loc, *add_to, writer);
+        emit_assert_int_i32(*add_to, state);
         return;
     }
 #endif
+    VLoc a_loc = *assign_loc(&GET_LOC(instr->a), this_loc, state);
+    VLoc b_loc = *assign_loc(&GET_LOC(instr->b), this_loc, state);
 
-    if (a_assigned && b_assigned) {
-        // we need to copy a into primary_reg, then add b into it
-        asm_emit_sub_r64_r64(this_reg, b_register, &state->writer);
-        asm_emit_mov_r64_r64(this_reg, a_register, &state->writer);
+    if (loc_equal(a_loc, this_loc)) {
+        asm_emit_sub(this_loc, b_loc, writer);
+    } else if (loc_equal(b_loc, this_loc)) {
+        asm_emit_sub(this_loc, a_loc, writer);
     } else {
-        Register64 primary_reg;  // the register we add into to get the result
-        Register64 secondary_reg; // the register we add in
-
-        if (a_assigned) {
-            // use b as our primary register which is added into and contains the result
-            // after all, this is b's last (or first) use, so it's safe
-            instr_assign_reg(instr->b, this_reg);
-            mark_register(this_reg, state);
-            primary_reg = this_reg;
-            secondary_reg = a_register;
-        } else if (b_assigned) {
-            // use a as our primary register which is added into and contains the result
-            // after all, this is a's last (or first) use, so it's safe
-            instr_assign_reg(instr->a, this_reg);
-            mark_register(this_reg, state);
-            primary_reg = this_reg;
-            secondary_reg = b_register;
-        } else {
-            // use a as our primary register which is added into and contains the result
-            // after all, this is a's last (or first) use, so it's safe
-            instr_assign_reg(instr->a, this_reg);
-            mark_register(this_reg, state);
-
-            // now find a register to put b into
-            Register64 new_reg = get_unused(state->used_registers);
-            if (new_reg == NO_REG) {
-                // TODO spill
-                ojit_new_error();
-                ojit_build_error_chars("Too many registers used concurrently");
-                ojit_exit(-1);
-                exit(-1);
-            }
-            instr_assign_reg(instr->b, new_reg);
-            mark_register(new_reg, state);
-
-            primary_reg = this_reg;
-            secondary_reg = new_reg;
-        }
-        asm_emit_sub_r64_r64(primary_reg, secondary_reg, &state->writer);
+        asm_emit_sub(this_loc, b_loc, writer);
+        asm_emit_mov(this_loc, a_loc, writer);
     }
+
+    emit_assert_int_i32(a_loc, state);
+    emit_assert_int_i32(b_loc, state);
 }
 
 void __attribute__((always_inline)) emit_cmp(Instruction* instruction, struct AssemblerState* state, bool store) {
     struct CompareIR* instr = &instruction->ir_cmp;
 
-    if (store && !IS_ASSIGNED(GET_REG(instr))) return;
-    Register64 this_reg = GET_REG(instr);
-    unmark_register(this_reg, state);
-
-    Register64 a_register = instr_fetch_reg(instr->a, NO_REG, state);
-    Register64 b_register = instr_fetch_reg(instr->b, NO_REG, state);
+    if (store && !IS_ASSIGNED(GET_LOC(instr))) return;
+    if (store) ojit_exit(-1);   // TODO
+    VLoc this_loc = GET_LOC(instr);
+    if (IS_ASSIGNED(this_loc)) unmark_loc(this_loc, state);
 
 #ifdef OJIT_OPTIMIZATIONS
     if (INSTR_TYPE(instr->a) == ID_INT_IR || INSTR_TYPE(instr->b) == ID_INT_IR) {
-        Register64 cmp_with;
+        VLoc* cmp_with;
         uint32_t constant;
         if (INSTR_TYPE(instr->a) == ID_INT_IR) {
-            cmp_with = instr_fetch_reg(instr->b, this_reg, state);
+            cmp_with = assign_loc(&GET_LOC(instr->b), this_loc, state);
             constant = instr->a->ir_int.constant;
         } else {
-            cmp_with = instr_fetch_reg(instr->a, this_reg, state);
+            cmp_with = assign_loc(&GET_LOC(instr->a), this_loc, state);
             constant = instr->b->ir_int.constant;
         }
-        if (store) asm_emit_setcc(instr->cmp, this_reg, &state->writer);
-        asm_emit_cmp_r32_i32(cmp_with, constant, &state->writer);
-        emit_assert_int_i32(cmp_with, state);
+//        if (store) asm_emit_setcc(instr->cmp, this_loc, &state->writer);
+        enum Registers reg = postload_loc(cmp_with, this_loc, state);
+        asm_emit_cmp_r32_i32(reg, constant, &state->writer);
+        emit_assert_int_i32(WRAP_REG(reg), state);
+        load_loc(cmp_with, state);
         return;
     }
 #endif
-    if (store) asm_emit_setcc(instr->cmp, this_reg, &state->writer);
-    asm_emit_cmp_r64_r64(a_register, b_register, &state->writer);
-}
 
-void __attribute__((always_inline)) emit_block_parameter(Instruction* instruction, struct AssemblerState* state) {
-    struct ParameterIR* instr = &instruction->ir_parameter;
+    VLoc* a_loc = assign_loc(&GET_LOC(instr->a), WRAP_NONE(), state);
+    VLoc* b_loc = assign_loc(&GET_LOC(instr->b), WRAP_NONE(), state);
 
-    Register64 this_reg = GET_REG(instr);
-    if (!IS_ASSIGNED(this_reg)) return;
-    // by unmarking the register the result is stored in, we can use it as the register of one of the arguments
-    unmark_register(this_reg, state);
-
-    Register64 entry_reg = instr->entry_reg;
-    OJIT_ASSERT(entry_reg != NO_REG, "Error: Parameter entry register is unassigned");
-#ifdef OJIT_OPTIMIZATIONS
-#endif
-    asm_emit_xchg_r64_r64(state->swap_owner_of[entry_reg], this_reg, &state->writer);
-    Register64 original_this_content = state->swap_contents[this_reg];
-    Register64 original_entry_owner = state->swap_owner_of[entry_reg];
-    state->swap_contents[original_entry_owner] = original_this_content;
-    state->swap_owner_of[original_this_content] = original_entry_owner;
-    state->swap_owner_of[entry_reg] = this_reg;
-    state->swap_contents[this_reg] = entry_reg;
+//    if (store) asm_emit_setcc(instr->cmp, this_loc, &state->writer);
+    asm_emit_cmp(*a_loc, *b_loc, &state->writer);
 }
 
 void __attribute__((always_inline)) emit_global(Instruction* instruction, struct AssemblerState* state) {
     struct GlobalIR* instr = &instruction->ir_global;
 
-    if (!IS_ASSIGNED(GET_REG(instr))) return;
-    Register64 this_reg = GET_REG(instr);
-    unmark_register(this_reg, state);
+    if (!IS_ASSIGNED(GET_LOC(instr))) return;
+    VLoc this_loc = GET_LOC(instr);
+    unmark_loc(this_loc, state);
 
     if (state->used_registers[RAX]) asm_emit_pop_r64(RAX, &state->writer);
     if (state->used_registers[RDX]) asm_emit_pop_r64(RDX, &state->writer);
     if (state->used_registers[RCX]) asm_emit_pop_r64(RCX, &state->writer);
 
-    asm_emit_mov_r64_r64(this_reg, RAX, &state->writer);
+    asm_emit_mov(this_loc, WRAP_REG(RAX), &state->writer);
     asm_emit_byte(0x20, &state->writer);
     asm_emit_byte(0xc4, &state->writer);
     asm_emit_byte(0x83, &state->writer);
@@ -255,9 +171,9 @@ void __attribute__((always_inline)) emit_global(Instruction* instruction, struct
 void __attribute__((always_inline)) emit_call(Instruction* instruction, struct AssemblerState* state) {
     struct CallIR* instr = &instruction->ir_call;
 
-    if (!IS_ASSIGNED(GET_REG(instr))) return;
-    Register64 this_reg = GET_REG(instr);
-    unmark_register(this_reg, state);
+    if (!IS_ASSIGNED(GET_LOC(instr))) return;
+    VLoc this_loc = GET_LOC(instr);
+    unmark_loc(this_loc, state);
 
     // TODO here and above state saving
     bool push_rax = false;
@@ -267,26 +183,14 @@ void __attribute__((always_inline)) emit_call(Instruction* instruction, struct A
     if (state->used_registers[RDX]) { asm_emit_pop_r64(RDX, &state->writer); push_rdx = true;}
     if (state->used_registers[RCX]) { asm_emit_pop_r64(RCX, &state->writer); push_rcx = true;}
 
-    enum Register64 callee_reg = instr->callee->base.reg;
-    if (!IS_ASSIGNED(callee_reg)) {
-        callee_reg = get_unused(state->used_registers);
-        if (callee_reg == NO_REG) {
-            // TODO spill
-            ojit_new_error();
-            ojit_build_error_chars("Too many registers used concurrently");
-            ojit_exit(-1);
-            exit(-1);
-        }
-        instr_assign_reg(instr->callee, callee_reg);
-        mark_register(callee_reg, state);
-    }
+    VLoc* callee_reg = assign_loc(&GET_LOC(instr->callee), WRAP_REG(RAX), state);
 
-    asm_emit_mov_r64_r64(this_reg, RAX, &state->writer);
+    asm_emit_mov(this_loc, WRAP_REG(RAX), &state->writer);
     asm_emit_byte(0x20, &state->writer);
     asm_emit_byte(0xc4, &state->writer);
     asm_emit_byte(0x83, &state->writer);
     asm_emit_byte(0x48, &state->writer);
-    asm_emit_call_r64(callee_reg, &state->writer);
+    asm_emit_call(*callee_reg, &state->writer);
     asm_emit_byte(0x20, &state->writer);
     asm_emit_byte(0xec, &state->writer);
     asm_emit_byte(0x83, &state->writer);
@@ -295,15 +199,16 @@ void __attribute__((always_inline)) emit_call(Instruction* instruction, struct A
     int arg_num = 0;
     FOREACH(arg_ptr, instr->arguments, IRValue) {
         IRValue arg = *arg_ptr;
-        enum Register64 reg;
+        VLoc reg;
         switch (arg_num) {
-            case 0: reg = RCX; break;
-            case 1: reg = RDX; break;
-            case 2: reg = R8; break;
-            case 4: reg = R9; break;
+            case 0: reg = WRAP_REG(RCX); break;
+            case 1: reg = WRAP_REG(RDX); break;
+            case 2: reg = WRAP_REG(R8); break;
+            case 4: reg = WRAP_REG(R9); break;
             default: exit(-1);
         }
-        asm_emit_mov_r64_r64(reg, arg->base.reg, &state->writer);
+        asm_emit_mov(reg, GET_LOC(arg), &state->writer);
+        // TODO convert to swap
         arg_num++;
     }
 
@@ -315,17 +220,17 @@ void __attribute__((always_inline)) emit_call(Instruction* instruction, struct A
 void __attribute__((always_inline)) emit_get_attr(Instruction* instruction, struct AssemblerState* state) {
     struct GetAttrIR* instr = &instruction->ir_get_attr;
 
-    if (!IS_ASSIGNED(GET_REG(instr))) return;
-    Register64 this_reg = GET_REG(instr);
-    unmark_register(this_reg, state);
+    if (!IS_ASSIGNED(GET_LOC(instr))) return;
+    VLoc this_loc = GET_LOC(instr);
+    unmark_loc(this_loc, state);
 
-    Register64 obj_reg = instr_fetch_reg(instr->obj, RCX, state);
+    VLoc* obj_reg = assign_loc(&GET_LOC(instr->obj), WRAP_REG(RCX), state);
 
     if (state->used_registers[RAX]) asm_emit_pop_r64(RAX, &state->writer);
     if (state->used_registers[RDX]) asm_emit_pop_r64(RDX, &state->writer);
     if (state->used_registers[RCX]) asm_emit_pop_r64(RCX, &state->writer);
 
-    asm_emit_mov_r64_r64(this_reg, RAX, &state->writer);
+    asm_emit_mov(this_loc, WRAP_REG(RAX), &state->writer);
     asm_emit_byte(0x20, &state->writer);
     asm_emit_byte(0xc4, &state->writer);
     asm_emit_byte(0x83, &state->writer);
@@ -336,7 +241,7 @@ void __attribute__((always_inline)) emit_get_attr(Instruction* instruction, stru
     asm_emit_byte(0x83, &state->writer);
     asm_emit_byte(0x48, &state->writer);
     asm_emit_mov_r64_i64(RAX, (uint64_t) hash_table_get_ptr, &state->writer);
-    asm_emit_mov_r64_r64(RCX, obj_reg, &state->writer);
+    asm_emit_mov(WRAP_REG(RCX), *obj_reg, &state->writer);
     asm_emit_mov_r64_i64(RDX, (uint64_t) instr->attr, &state->writer);
 
     if (state->used_registers[RCX]) asm_emit_push_r64(RCX, &state->writer);
@@ -348,42 +253,42 @@ void __attribute__((always_inline)) emit_get_loc(Instruction* instruction, struc
     struct GetLocIR* instr = &instruction->ir_get_loc;
     OJIT_ASSERT(INSTR_TYPE(instr->loc) == ID_GET_ATTR_IR, "err");
 
-    if (!IS_ASSIGNED(GET_REG(instr))) return;
-    Register64 this_reg = GET_REG(instr);
-    unmark_register(this_reg, state);
+    if (!IS_ASSIGNED(GET_LOC(instr))) return;
+    VLoc this_loc = GET_LOC(instr);
+    unmark_loc(this_loc, state);
 
-    Register64 loc_reg = instr_fetch_reg(instr->loc, this_reg, state);
+    VLoc* loc_reg = assign_loc(&GET_LOC(instr->loc), this_loc, state);
 
-    asm_emit_mov_r64_ir64(this_reg, loc_reg, &state->writer);
+    asm_emit_mov(this_loc, *loc_reg, &state->writer);
 }
 
 void __attribute__((always_inline)) emit_set_loc(Instruction* instruction, struct AssemblerState* state) {
     struct SetLocIR* instr = &instruction->ir_set_loc;
     OJIT_ASSERT(INSTR_TYPE(instr->loc) == ID_GET_ATTR_IR, "err");
 
-    Register64 this_reg = GET_REG(instr);
-    if (IS_ASSIGNED(this_reg)) {
-        unmark_register(this_reg, state);
+    VLoc this_loc = GET_LOC(instr);
+    if (IS_ASSIGNED(this_loc)) {
+        unmark_loc(this_loc, state);
     }
 
-    Register64 loc_reg = instr_fetch_reg(instr->loc, this_reg, state);
-    Register64 value_reg = instr_fetch_reg(instr->value, this_reg, state);
+    VLoc* loc_reg = assign_loc(&GET_LOC(instr->loc), this_loc, state);
+    VLoc* value_reg = assign_loc(&GET_LOC(instr->value), this_loc, state);
 
-    asm_emit_mov_ir64_r64(loc_reg, value_reg, &state->writer);
+    asm_emit_mov(*loc_reg, *value_reg, &state->writer);
 }
 
 void __attribute__((always_inline)) emit_new_object(Instruction* instruction, struct AssemblerState* state) {
     struct NewObjectIR* instr = &instruction->ir_new_object;
 
-    if (!IS_ASSIGNED(GET_REG(instr))) return;
-    Register64 this_reg = GET_REG(instr);
-    unmark_register(this_reg, state);
+    if (!IS_ASSIGNED(GET_LOC(instr))) return;
+    VLoc this_loc = GET_LOC(instr);
+    unmark_loc(this_loc, state);
 
     if (state->used_registers[RAX]) asm_emit_pop_r64(RAX, &state->writer);
     if (state->used_registers[RDX]) asm_emit_pop_r64(RDX, &state->writer);
     if (state->used_registers[RCX]) asm_emit_pop_r64(RCX, &state->writer);
 
-    asm_emit_mov_r64_r64(this_reg, RAX, &state->writer);
+    asm_emit_mov(this_loc, WRAP_REG(RAX), &state->writer);
     asm_emit_byte(0x20, &state->writer);
     asm_emit_byte(0xc4, &state->writer);
     asm_emit_byte(0x83, &state->writer);
@@ -413,7 +318,7 @@ void __attribute__((always_inline)) emit_instruction(Instruction* instruction_ir
         case ID_GET_LOC_IR: emit_get_loc(instruction_ir, state); break;
         case ID_SET_LOC_IR: emit_set_loc(instruction_ir, state); break;
         case ID_NEW_OBJECT_IR: emit_new_object(instruction_ir, state); break;
-        case ID_BLOCK_PARAMETER_IR: emit_block_parameter(instruction_ir, state); break;
+        case ID_BLOCK_PARAMETER_IR: break;
         case ID_INSTR_NONE:
             ojit_new_error();
             ojit_build_error_chars("Broken or Unimplemented instruction: ");

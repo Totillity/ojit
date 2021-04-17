@@ -9,7 +9,7 @@
 #ifdef OJIT_SKIP_CHECKS
 #define OJIT_ASSERT(cond, err_msg) do {} while (0)
 #else
-#define OJIT_ASSERT(cond, err_msg) do { if (!(cond)) {ojit_new_error(); ojit_build_error_chars(err_msg); ojit_error(); ojit_exit(0); }; } while (0)
+#define OJIT_ASSERT(cond, err_msg) do { if (!(cond)) {ojit_new_error(); ojit_build_error_chars(err_msg); ojit_error(); ojit_exit(-1); }; } while (0)
 #endif
 
 
@@ -23,6 +23,6 @@ void ojit_error();
 
 void ojit_exit(int code);
 
-_Noreturn void exit(int code);
+//_Noreturn void exit(int code);
 
 #endif //OJIT_OJIT_DEF_H

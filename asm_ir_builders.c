@@ -10,9 +10,10 @@ enum Comparison inverted_cmp[16] = {
         [IF_GREATER_EQUAL-0x80] = 0x8C,
 };
 
-void init_block(struct BlockIR* block, uint32_t index, MemCtx* ctx) {
+void init_block(struct BlockIR* block, MemCtx* ctx) {
     block->first_instrs = block->last_instrs = lalist_grow(ctx, NULL, NULL);
     block->num_instrs = 0;
+    block->num_params = 0;
 
     block->terminator.ir_base.id = ID_TERM_NONE;
 
@@ -24,7 +25,8 @@ void init_block(struct BlockIR* block, uint32_t index, MemCtx* ctx) {
 
 struct BlockIR* function_add_block(struct FunctionIR* func, MemCtx* ctx) {
     struct BlockIR* block = lalist_grow_add(&func->last_blocks, sizeof(struct BlockIR));
-    init_block(block, func->num_blocks++, ctx);
+    func->num_blocks++;
+    init_block(block, ctx);
     return block;
 }
 
@@ -38,7 +40,7 @@ IRBuilder* create_builder(struct FunctionIR* function_ir, MemCtx* ctx) {
 
 Instruction* builder_add_instr(IRBuilder* builder) {
     Instruction* instr = lalist_grow_add(&builder->current_block->last_instrs, sizeof(Instruction));
-    instr->base.reg = NO_REG;
+    instr->base.loc = ((VLoc) {.reg = NO_REG, .offset = 0, .is_reg = true});
     instr->base.refs = 0;
     instr->base.index = builder->current_block->num_instrs++;
     return instr;
@@ -81,8 +83,9 @@ void builder_enter_block(IRBuilder* builder, struct BlockIR* block_ir) {
 IRValue builder_add_parameter(IRBuilder* builder, String var_name) {
     struct ParameterIR* instr = &builder_add_instr(builder)->ir_parameter;
     instr->var_name = var_name;
-    instr->entry_reg = NO_REG;
+    instr->entry_loc = WRAP_REG(NO_REG);
     INSTR_TYPE(instr) = ID_BLOCK_PARAMETER_IR;
+    builder->current_block->num_params++;
     return (IRValue) instr;
 }
 
@@ -221,6 +224,7 @@ void merge_blocks(IRBuilder* builder, struct BlockIR* to, struct BlockIR* from) 
                 IRValue arg;
                 if (!hash_table_get(&from->variables, STRING_KEY(param->var_name), (uint64_t*) &arg)){
                     param->var_name = NULL;
+                    to->num_params--;
                 } else {
                     INC_INSTR(arg);
                 }

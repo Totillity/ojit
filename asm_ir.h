@@ -20,7 +20,7 @@
 
 // region Registers
 // Idea: add Spilled-reg to mark values which were spilled onto the stack
-enum Register64 {
+enum Registers {
     RAX = 0b0000,
     RCX = 0b0001,
     RDX = 0b0010,
@@ -45,10 +45,19 @@ enum Register64 {
     R14 = 0b1110,
     R15 = 0b1111,
 };
-typedef enum Register64 Register64;
-typedef enum Register64 Register32;
 
-#define IS_ASSIGNED(reg) (((reg) & 0b1111) != NO_REG)
+typedef struct {
+    enum Registers reg;
+    uint8_t offset;
+    bool is_reg;
+} VLoc;
+
+#define WRAP_NONE() ((VLoc) {.reg = NO_REG, .is_reg = true})
+#define WRAP_REG(reg_) ((VLoc) {.reg = (reg_), .is_reg = true})
+#define WRAP_VAR(offset_) ((VLoc) {.reg = SPILLED_REG, .offset = (offset_), .is_reg = false})
+#define IS_ASSIGNED(loc_) ((loc_).reg != NO_REG)
+
+bool loc_equal(VLoc loc_1, VLoc loc_2);
 // endregion
 
 typedef enum ValueType {
@@ -82,7 +91,7 @@ enum InstructionID {
 };
 
 struct InstructionBase  {
-    Register64 reg;
+    VLoc loc;
     enum InstructionID id;
     uint16_t refs;
     uint16_t index;
@@ -90,7 +99,7 @@ struct InstructionBase  {
 
 struct ParameterIR {
     struct InstructionBase base;
-    enum Register64 entry_reg;
+    VLoc entry_loc;
     String var_name;
 };
 
@@ -221,6 +230,7 @@ struct BlockIR {
     LAList* first_instrs;
     LAList* last_instrs;
     uint16_t num_instrs;
+    uint16_t num_params;
     uint32_t block_index;
 
     union TerminatorIR terminator;

@@ -53,6 +53,8 @@ struct AssemblyWriter {
 
 struct AssemblerState {
     struct AssemblyWriter writer;
+    uint8_t curr_num_vars;
+    uint8_t max_num_vars;
 
     struct BlockIR* block;
 
@@ -60,8 +62,10 @@ struct AssemblerState {
     Segment* err_return_label;
 
     bool used_registers[16];
-    enum Register64 swap_owner_of[16];
-    enum Register64 swap_contents[16];
+    enum Registers swap_owner_of[16];
+    enum Registers swap_contents[16];
+    Instruction* curr_tmp_1_user;
+    Instruction* curr_tmp_2_user;
 
     MemCtx* jit_mem;
     struct GetFunctionCallback callback;
@@ -71,6 +75,9 @@ void init_asm_state(struct AssemblerState* state, struct BlockIR* block, Segment
     state->block = block;
     state->writer.curr = curr;
     state->writer.label = label;
+
+    state->curr_num_vars = 0;
+    state->max_num_vars = 0;
 
     // Windows makes you assume the registers RBX, RSI, RDI, RBP, R12-R15 are used
     // Additionally, we assumed RBP, RSP, R12, and R13 are used because it's a pain to use them
@@ -88,15 +95,27 @@ void init_asm_state(struct AssemblerState* state, struct BlockIR* block, Segment
     state->used_registers[R9]  = false;
     state->used_registers[R10] = false;
     state->used_registers[R11] = false;
-    state->used_registers[TMP_1_REG]   = true;
-    state->used_registers[TMP_2_REG]   = true;
+    state->used_registers[TMP_1_REG] = false;
+    state->used_registers[TMP_2_REG] = false;
     state->used_registers[R14]         = true;
     state->used_registers[R15]         = true;
+
+    state->curr_tmp_1_user = NULL;
+    state->curr_tmp_2_user = NULL;
 
     for (int i = 0; i < 16; i++) {
         state->swap_owner_of[i] = i;
         state->swap_contents[i] = i;
     }
+}
+
+
+uint8_t state_alloc_var(struct AssemblerState* state) {
+    uint8_t num = state->curr_num_vars++;
+    if (state->curr_num_vars > state->max_num_vars) {
+        state->max_num_vars = state->curr_num_vars;
+    }
+    return num;
 }
 
 Segment* create_segment_label(Segment* prev_block, Segment* next_block, MemCtx* ctx) {

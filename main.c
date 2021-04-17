@@ -26,7 +26,6 @@ int main() {
 
     OJITObject arg = INT_AS_OBJ(1);
     OJITObject res = jit_call_function(jit, main_func, FuncType, arg);
-
     printf("Value: %i\n", OBJ_AS_INT(res));
     return 0;
 }
