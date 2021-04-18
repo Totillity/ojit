@@ -4,7 +4,7 @@
 #include "jit_interpreter.h"
 #include "obj.h"
 
-typedef OJITObject (*FuncType)(OJITObject);
+typedef OJITValue (*FuncType)(OJITValue);
 
 double time_function(JIT* jit, JITFunc func, int arg) {
     int iterations = 1000000000;
@@ -25,10 +25,10 @@ int main() {
         JITFunc main_func = jit_get_function(jit, "main", 4);
         jit_dump_function(jit, main_func, stdout);
 
-        OJITObject arg = INT_AS_OBJ(1);
-        OJITObject res = jit_call_function(jit, main_func, FuncType, arg);
+        OJITValue arg = INT_AS_VAL(1);
+        OJITValue res = jit_call_function(jit, main_func, FuncType, arg);
 
-        printf("Value: %i\n", OBJ_AS_INT(res));
+        printf("Value: %i\n", VAL_AS_INT(res));
     }
     return 0;
 }

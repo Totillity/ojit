@@ -6,7 +6,7 @@
 
 void __attribute__((always_inline)) emit_return(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct ReturnIR* ret = &terminator->ir_return;
-    asm_emit_byte(0xC3, &state->writer);
+    asm_emit_ret(&state->writer);
     instr_assign_loc(ret->value, WRAP_REG(RAX), state);
     asm_emit_mov(WRAP_REG(RAX), GET_LOC(ret->value), &state->writer);
     asm_emit_pop_r64(RBP, &state->writer);

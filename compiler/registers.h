@@ -173,10 +173,11 @@ void load_loc_into(VLoc* loc, enum Registers reg, struct AssemblerState* state) 
 //       Note: if it is a double, then you must invert the whole thing to restore it
 //   B: Tag of the object (if it is one, otherwise its just double data)
 //       Tags:
-//           000: Pointer              (uses 48 bits)
-//           001: Signed Integer     (uses 32 bits)
-//           010: Undefined
-//           100: Undefined
+//           000: Pointer                           (uses 48 bits)
+//           001: Unsigned Integer                  (uses 32 bits)
+//           010-011: Unused
+//           1xx: An Exception which was raised     (uses 48 bits)
+//               100: Type error
 //   C: Payload. Size and usage vary based on type.
 
 
@@ -186,8 +187,8 @@ void __attribute__((always_inline)) emit_assert_int_i32(VLoc check_loc, struct A
     state->writer.label = this_err_label;
     Segment* err_segment = state->writer.curr = create_segment_code(this_err_label, state->err_return_label, state->writer.write_mem);
     asm_emit_jmp(state->err_return_label, &state->writer);
-//    asm_emit_mov_r64_i64(RCX, ((uint64_t) this_err_label) & 0xFF, &state->writer);
-    asm_emit_mov_r64_r64(RCX, RCX, &state->writer);
+//    asm_emit_ret(&state->writer);
+    asm_emit_mov_r64_i64(RAX, INT_AS_VAL(1), &state->writer);
     state->writer = old_writer;
 
     enum Registers tmp_reg = get_unused_tmp(state->used_registers);

@@ -3,6 +3,7 @@
 
 #include "../ojit_def.h"
 #include "compiler.h"
+#include "../obj.h"
 
 #include "compiler_records.h"
 #include "emit_instr.h"
@@ -279,7 +280,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
 
     state.writer.curr = create_segment_code(err_return_label, NULL, compiler_mem);
     state.writer.label = err_return_label;
-    asm_emit_byte(0xC3, &state.writer);
+    asm_emit_ret(&state.writer);
     asm_emit_mov(WRAP_REG(RAX), WRAP_REG(RCX), &state.writer);
     asm_emit_pop_r64(RBP, &state.writer);
     asm_emit_mov_r64_r64(RSP, RBP, &state.writer);

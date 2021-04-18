@@ -407,6 +407,10 @@ void __attribute__((always_inline)) asm_emit_jcc(enum Comparison cond, Segment* 
 
     writer->curr = create_segment_code(writer->label, (Segment*) jump, writer->write_mem);
 }
+
+void __attribute__((always_inline)) asm_emit_ret(struct AssemblyWriter* writer) {
+    asm_emit_byte(0xC3, writer);
+}
 // endregion
 
 void __attribute__((always_inline)) asm_emit_mov(VLoc dest, VLoc source, struct AssemblyWriter* writer) {
