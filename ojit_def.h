@@ -23,6 +23,4 @@ void ojit_error();
 
 void ojit_exit(int code);
 
-//_Noreturn void exit(int code);
-
 #endif //OJIT_OJIT_DEF_H

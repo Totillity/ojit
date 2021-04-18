@@ -3,6 +3,7 @@
 
 #include "jit_interpreter.h"
 #include "obj.h"
+#include "ojit_def.h"
 
 typedef OJITValue (*FuncType)(OJITValue);
 
@@ -27,8 +28,14 @@ int main() {
 
         OJITValue arg = INT_AS_VAL(1);
         OJITValue res = jit_call_function(jit, main_func, FuncType, arg);
-
-        printf("Value: %i\n", VAL_AS_INT(res));
+        if (VAL_IS_TYPE_ERROR(res)) {
+            ojit_new_error();
+            ojit_build_error_chars("Function returned Error: ");
+            ojit_build_error_String(VAL_AS_TYPE_ERROR(res));
+            ojit_error();
+        } else {
+            printf("Function returned value: %i\n", VAL_AS_INT(res));
+        }
     }
     return 0;
 }

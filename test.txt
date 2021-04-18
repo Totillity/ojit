@@ -1,6 +1,6 @@
 def main(a1) {
     let a2 = {};
-    while (a1 < 3) {
+    while (a2 < 3) {
         a1 = a1 + 3;
     }
     return a1;

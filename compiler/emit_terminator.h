@@ -119,9 +119,6 @@ void __attribute__((always_inline)) resolve_undefined_arguments(struct BlockIR* 
                         ojit_exit(57);
                     }
                 }
-                if (!loc_equal(*arg_loc, *param_loc)) {
-                    printf("wut\n");
-                }
                 done:
                 target_locs[(*target_locs_index)++] = param_loc;
                 swap_from[instr->base.index] = arg_loc;
@@ -136,6 +133,10 @@ void __attribute__((always_inline)) resolve_undefined_arguments(struct BlockIR* 
 void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struct AssemblerState* state) {
     VLoc* swap_from[target->num_params];
     VLoc* swap_to[target->num_params];
+    for (int i = 0; i < target->num_params; i++) {
+        swap_from[i] = NULL;
+        swap_to[i] = NULL;
+    }
 
 //    uint64_t target_locs = UINT64_MAX ^ (
 //            (1 << RBX) |
