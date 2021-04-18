@@ -9,6 +9,8 @@ void __attribute__((always_inline)) emit_return(union TerminatorIR* terminator, 
     asm_emit_byte(0xC3, &state->writer);
     assign_loc(&GET_LOC(ret->value), WRAP_REG(RAX), state);
     asm_emit_mov(WRAP_REG(RAX), GET_LOC(ret->value), &state->writer);
+    asm_emit_pop_r64(RBP, &state->writer);
+    asm_emit_mov_r64_r64(RSP, RBP, &state->writer);
 }
 
 

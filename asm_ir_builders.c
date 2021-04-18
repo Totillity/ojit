@@ -2,12 +2,12 @@
 #include "asm_ir_builders.h"
 
 enum Comparison inverted_cmp[16] = {
-        [IF_EQUAL-0x80] = 0x85,
-        [IF_NOT_EQUAL-0x80] = 0x84,
-        [IF_LESS-0x80] = 0x8D,
-        [IF_LESS_EQUAL-0x80] = 0x8F,
-        [IF_GREATER-0x80] = 0x8E,
-        [IF_GREATER_EQUAL-0x80] = 0x8C,
+        [ IF_EQUAL - 0x80 ]         = IF_NOT_EQUAL,
+        [ IF_NOT_EQUAL - 0x80 ]     = IF_EQUAL,
+        [ IF_LESS - 0x80 ]          = IF_GREATER_EQUAL,
+        [ IF_LESS_EQUAL - 0x80 ]    = IF_GREATER,
+        [ IF_GREATER - 0x80 ]       = IF_LESS_EQUAL,
+        [ IF_GREATER_EQUAL - 0x80 ] = IF_LESS,
 };
 
 void init_block(struct BlockIR* block, MemCtx* ctx) {

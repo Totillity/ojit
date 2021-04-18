@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.17)
 project(ojit C)
 
 set(CMAKE_C_STANDARD 11)
-add_compile_options(-Wno-attributes)
+add_compile_options(-Wno-attributes -fstack-check)
 
 add_compile_definitions(OJIT_OPTIMIZATIONS)
 add_compile_definitions(OJIT_READABLE_IR)
