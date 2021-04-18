@@ -27,10 +27,10 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
         VLoc add_to;
         uint32_t constant;
         if (INSTR_TYPE(instr->a) == ID_INT_IR) {
-            add_to = *assign_loc(&GET_LOC(instr->b), this_loc, state);
+            add_to = *instr_assign_loc(instr->b, this_loc, state);
             constant = instr->a->ir_int.constant;
         } else {
-            add_to = *assign_loc(&GET_LOC(instr->a), this_loc, state);
+            add_to = *instr_assign_loc(instr->a, this_loc, state);
             constant = instr->b->ir_int.constant;
         }
         enum Registers tmp_reg = store_loc(&this_loc, WRAP_NONE(), state);
@@ -41,8 +41,8 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
         return;
     }
 #endif
-    VLoc a_loc = *assign_loc(&GET_LOC(instr->a), this_loc, state);
-    VLoc b_loc = *assign_loc(&GET_LOC(instr->b), this_loc, state);
+    VLoc a_loc = *instr_assign_loc(instr->a, this_loc, state);
+    VLoc b_loc = *instr_assign_loc(instr->b, this_loc, state);
 
     if (loc_equal(a_loc, this_loc)) {
         asm_emit_add(this_loc, WRAP_REG(TMP_1_REG), writer);
@@ -73,10 +73,10 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
         VLoc* add_to;
         uint32_t constant;
         if (INSTR_TYPE(instr->a) == ID_INT_IR) {
-            add_to = assign_loc(&GET_LOC(instr->b), this_loc, state);
+            add_to = instr_assign_loc(instr->b, this_loc, state);
             constant = instr->a->ir_int.constant;
         } else {
-            add_to = assign_loc(&GET_LOC(instr->a), this_loc, state);
+            add_to = instr_assign_loc(instr->a, this_loc, state);
             constant = instr->b->ir_int.constant;
         }
         enum Registers tmp_reg = store_loc(&this_loc, WRAP_NONE(), state);
@@ -87,8 +87,8 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
         return;
     }
 #endif
-    VLoc a_loc = *assign_loc(&GET_LOC(instr->a), this_loc, state);
-    VLoc b_loc = *assign_loc(&GET_LOC(instr->b), this_loc, state);
+    VLoc a_loc = *instr_assign_loc(instr->a, this_loc, state);
+    VLoc b_loc = *instr_assign_loc(instr->b, this_loc, state);
 
     if (loc_equal(a_loc, this_loc)) {
         asm_emit_sub(this_loc, b_loc, writer);
@@ -116,10 +116,10 @@ void __attribute__((always_inline)) emit_cmp(Instruction* instruction, struct As
         VLoc* cmp_with;
         uint32_t constant;
         if (INSTR_TYPE(instr->a) == ID_INT_IR) {
-            cmp_with = assign_loc(&GET_LOC(instr->b), this_loc, state);
+            cmp_with = instr_assign_loc(instr->b, this_loc, state);
             constant = instr->a->ir_int.constant;
         } else {
-            cmp_with = assign_loc(&GET_LOC(instr->a), this_loc, state);
+            cmp_with = instr_assign_loc(instr->a, this_loc, state);
             constant = instr->b->ir_int.constant;
         }
 //        if (store) asm_emit_setcc(instr->cmp, this_loc, &state->writer);
@@ -131,8 +131,8 @@ void __attribute__((always_inline)) emit_cmp(Instruction* instruction, struct As
     }
 #endif
 
-    VLoc* a_loc = assign_loc(&GET_LOC(instr->a), WRAP_NONE(), state);
-    VLoc* b_loc = assign_loc(&GET_LOC(instr->b), WRAP_NONE(), state);
+    VLoc* a_loc = instr_assign_loc(instr->a, WRAP_NONE(), state);
+    VLoc* b_loc = instr_assign_loc(instr->b, WRAP_NONE(), state);
 
 //    if (store) asm_emit_setcc(instr->cmp, this_loc, &state->writer);
     asm_emit_cmp(*a_loc, *b_loc, &state->writer);
@@ -183,7 +183,7 @@ void __attribute__((always_inline)) emit_call(Instruction* instruction, struct A
     if (state->used_registers[RDX]) { asm_emit_pop_r64(RDX, &state->writer); push_rdx = true;}
     if (state->used_registers[RCX]) { asm_emit_pop_r64(RCX, &state->writer); push_rcx = true;}
 
-    VLoc* callee_reg = assign_loc(&GET_LOC(instr->callee), WRAP_REG(RAX), state);
+    VLoc* callee_reg = instr_assign_loc(instr->callee, WRAP_REG(RAX), state);
 
     asm_emit_mov(this_loc, WRAP_REG(RAX), &state->writer);
     asm_emit_byte(0x20, &state->writer);
@@ -224,7 +224,7 @@ void __attribute__((always_inline)) emit_get_attr(Instruction* instruction, stru
     VLoc this_loc = GET_LOC(instr);
     unmark_loc(this_loc, state);
 
-    VLoc* obj_reg = assign_loc(&GET_LOC(instr->obj), WRAP_REG(RCX), state);
+    VLoc* obj_reg = instr_assign_loc(instr->obj, WRAP_REG(RCX), state);
 
     if (state->used_registers[RAX]) asm_emit_pop_r64(RAX, &state->writer);
     if (state->used_registers[RDX]) asm_emit_pop_r64(RDX, &state->writer);
@@ -257,7 +257,7 @@ void __attribute__((always_inline)) emit_get_loc(Instruction* instruction, struc
     VLoc this_loc = GET_LOC(instr);
     unmark_loc(this_loc, state);
 
-    VLoc* loc_reg = assign_loc(&GET_LOC(instr->loc), this_loc, state);
+    VLoc* loc_reg = instr_assign_loc(instr->loc, this_loc, state);
 
     asm_emit_mov(this_loc, *loc_reg, &state->writer);
 }
@@ -271,8 +271,8 @@ void __attribute__((always_inline)) emit_set_loc(Instruction* instruction, struc
         unmark_loc(this_loc, state);
     }
 
-    VLoc* loc_reg = assign_loc(&GET_LOC(instr->loc), this_loc, state);
-    VLoc* value_reg = assign_loc(&GET_LOC(instr->value), this_loc, state);
+    VLoc* loc_reg = instr_assign_loc(instr->loc, this_loc, state);
+    VLoc* value_reg = instr_assign_loc(instr->value, this_loc, state);
 
     asm_emit_mov(*loc_reg, *value_reg, &state->writer);
 }

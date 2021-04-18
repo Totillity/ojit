@@ -6,7 +6,7 @@
 
 // region Registers
 #define GET_LOC(value) ((value)->base.loc)
-#define SET_LOC(value, loc_) ((value)->base.loc = (loc_))
+//#define SET_LOC(value, loc_) ((value)->base.loc = (loc_))
 
 void __attribute__((always_inline)) mark_reg(enum Registers reg, struct AssemblerState* state) {
     OJIT_ASSERT(state->used_registers[reg] == false, "Attempted to mark a register which is already marked");
@@ -31,10 +31,10 @@ bool __attribute__((always_inline)) loc_is_marked(VLoc loc, struct AssemblerStat
     else return false;
 }
 
-void __attribute__((always_inline)) instr_assign_loc(Instruction* instr, VLoc loc) {
-    OJIT_ASSERT(!IS_ASSIGNED(GET_LOC(instr)), "Attempted to assign a register which is already in use");
-    SET_LOC(instr, loc);
-}
+//void __attribute__((always_inline)) instr_assign_loc(Instruction* instr, VLoc loc) {
+//    OJIT_ASSERT(!IS_ASSIGNED(GET_LOC(instr)), "Attempted to assign a register which is already in use");
+//    SET_LOC(instr, loc);
+//}
 
 enum Registers get_unused(const bool* registers) {
     if      (!registers[RAX]) return RAX;
@@ -78,6 +78,28 @@ enum Registers get_unused_tmp(const bool* registers) {
 //    }
 //    return reg;
 //}
+
+VLoc* instr_assign_loc(Instruction* instr, VLoc suggested, struct AssemblerState* state) {
+    VLoc* loc = &GET_LOC(instr);
+    if (!IS_ASSIGNED(*loc)) {
+        if (instr->base.id == ID_BLOCK_PARAMETER_IR && IS_ASSIGNED(instr->ir_parameter.entry_loc) && !loc_is_marked(instr->ir_parameter.entry_loc, state)) {
+            *loc = instr->ir_parameter.entry_loc;
+        } else if (IS_ASSIGNED(suggested) && !loc_is_marked(suggested, state) && suggested.reg != NO_REG) {
+            // Since NO_REG will always be assigned, we don't need to have a specific check
+            *loc = suggested;
+        } else {
+            enum Registers unused = get_unused(state->used_registers);
+            if (unused == NO_REG) {
+                uint8_t offset = state_alloc_var(state);
+                *loc = WRAP_VAR(offset);
+            } else {
+                *loc = WRAP_REG(unused);
+            }
+        }
+        mark_loc(*loc, state);
+    }
+    return loc;
+}
 
 VLoc* assign_loc(VLoc* loc, VLoc suggested, struct AssemblerState* state) {
     if (!IS_ASSIGNED(*loc)) {

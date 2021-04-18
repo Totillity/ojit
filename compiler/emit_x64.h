@@ -537,8 +537,6 @@ void __attribute__((always_inline)) map_registers(VLoc** map_from, VLoc** map_to
             }
         }
         if (must_xchg) {
-            asm_emit_xchg(*loc_into, *from, writer);
-
             for (int k = rows - 1; k >= 0; k--) {
                 if (!moves_from[k]) {
                     moves_from[k] = from;
@@ -546,6 +544,8 @@ void __attribute__((always_inline)) map_registers(VLoc** map_from, VLoc** map_to
                     break;
                 }
             }
+            printf("emitted xchg\n");
+            asm_emit_xchg(*loc_into, *from, writer);
         } else {
             asm_emit_mov(*loc_into, *from, writer);
         }

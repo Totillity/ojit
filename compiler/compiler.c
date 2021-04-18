@@ -306,7 +306,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
             emit_instruction(instr, &state);
             instr = lalist_iter_prev(&instr_iter);
         }
-        int k = 0;
+        int k = block->num_params-1;
         VLoc* swap_from[block->num_params];
         VLoc* swap_to[block->num_params];
         uint32_t skipped_count = 0;
@@ -316,14 +316,14 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
                 if (param->base.refs != 0) {
                     swap_to[k] = &GET_LOC(param);
                     swap_from[k] = &param->entry_loc;
-                    k += 1;
+                    k -= 1;
                 } else {
                     skipped_count += 1;
                 }
             }
             instr = lalist_iter_prev(&instr_iter);
         }
-        map_registers(swap_from, swap_to, block->num_params - skipped_count, &state.writer);
+        map_registers(swap_from + skipped_count, swap_to + skipped_count, block->num_params - skipped_count, &state.writer);
 
         block = block->next_block;
         if (state.max_num_vars > max_num_vars) max_num_vars = state.max_num_vars;
