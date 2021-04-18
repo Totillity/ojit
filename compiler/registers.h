@@ -142,7 +142,7 @@ void __attribute__((always_inline)) emit_assert_int_i32(VLoc check_loc, struct A
     state->writer.label = this_err_label;
     Segment* err_segment = state->writer.curr = create_segment_code(this_err_label, state->err_return_label, state->writer.write_mem);
     asm_emit_jmp(state->err_return_label, &state->writer);
-    asm_emit_mov_r64_i64(RAX, INT_AS_VAL(1), &state->writer);
+    asm_emit_mov_r64_i64(RCX, INT_AS_VAL(1), &state->writer);
     state->writer = old_writer;
 
     enum Registers tmp_reg = get_unused_tmp(state->used_registers);
