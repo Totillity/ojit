@@ -43,6 +43,7 @@ Instruction* builder_add_instr(IRBuilder* builder) {
     instr->base.loc = ((VLoc) {.reg = NO_REG, .offset = 0, .is_reg = true});
     instr->base.refs = 0;
     instr->base.index = builder->current_block->num_instrs++;
+    instr->base.type = TYPE_UNKNOWN;
     return instr;
 }
 

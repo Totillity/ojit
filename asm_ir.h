@@ -61,6 +61,7 @@ bool loc_equal(VLoc loc_1, VLoc loc_2);
 // endregion
 
 typedef enum ValueType {
+    TYPE_UNKNOWN,
     TYPE_INT,
     TYPE_OBJECT,
 } ValueType;
@@ -95,6 +96,7 @@ struct InstructionBase  {
     enum InstructionID id;
     uint16_t refs;
     uint16_t index;
+    enum ValueType type;
 };
 
 struct ParameterIR {

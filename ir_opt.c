@@ -89,7 +89,7 @@ enum FoldStep fold_add_int_int(struct AddIR* instr, struct IntIR* a, struct IntI
     return REPEAT_FOLD;
 }
 
-void fold_communtative_add(struct AddIR* instr, struct AddIR* inner_add, struct IntIR* outer_const, struct IntIR* inner_const, Instruction* val) {
+void fold_commutative_add(struct AddIR* instr, struct AddIR* inner_add, struct IntIR* outer_const, struct IntIR* inner_const, Instruction* val) {
     uint32_t new_const = outer_const->constant + inner_const->constant;
     replace_instr_int((Instruction*) outer_const, new_const);
     replace_instr_add((Instruction*) instr, (Instruction*) outer_const, val);
@@ -108,7 +108,7 @@ enum FoldStep fold_add_int_add(struct AddIR* instr, struct IntIR* a, struct AddI
             val = b->a;
             inner_const = (struct IntIR*) b->b;
         }
-        fold_communtative_add(instr, b, a, inner_const, val);
+        fold_commutative_add(instr, b, a, inner_const, val);
         return REPEAT_FOLD;
     }
     return CONTINUE_FOLD;
@@ -125,7 +125,7 @@ enum FoldStep fold_add_add_int(struct AddIR* instr, struct AddIR* a, struct IntI
             val = a->a;
             inner_const = (struct IntIR*) a->b;
         }
-        fold_communtative_add(instr, a, b, inner_const, val);
+        fold_commutative_add(instr, a, b, inner_const, val);
         return REPEAT_FOLD;
     }
     return CONTINUE_FOLD;
@@ -201,7 +201,7 @@ void ojit_optimize_func(struct FunctionIR* func, struct GetFunctionCallback call
 
     struct BlockIR* block = func->first_block;
     while (block) {
-//        ojit_optimize_block(block, &state);
+        ojit_optimize_block(block, &state);
         block = block->next_block;
     }
 
