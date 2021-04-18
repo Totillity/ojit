@@ -549,7 +549,6 @@ void __attribute__((always_inline)) map_registers(VLoc** map_from, VLoc** map_to
                     break;
                 }
             }
-            printf("emitted xchg\n");
             asm_emit_xchg(*loc_into, *from, writer);
         } else {
             asm_emit_mov(*loc_into, *from, writer);

@@ -60,9 +60,6 @@ void __attribute__((always_inline)) resolve_defined_arguments(struct BlockIR* ta
                         }
                     }
                 }
-                if (!loc_equal(*arg_loc, *param_loc)) {
-                    printf("wut\n");
-                }
                 target_locs[(*target_locs_index)++] = param_loc;
                 swap_from[instr->base.index] = arg_loc;
                 swap_to[instr->base.index] = param_loc;
