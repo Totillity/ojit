@@ -5,7 +5,7 @@
 #include "registers.h"
 
 // region Emit Instructions
-void __attribute__((always_inline)) emit_int(Instruction* instruction, struct AssemblerState* state) {
+void static inline emit_int(Instruction* instruction, struct AssemblerState* state) {
     struct IntIR* instr = &instruction->ir_int;
     if (IS_ASSIGNED(GET_LOC(instr))) {
         emit_wrap_int_i32(&GET_LOC(instr), instr->constant, state);
@@ -13,7 +13,7 @@ void __attribute__((always_inline)) emit_int(Instruction* instruction, struct As
     }
 }
 
-void __attribute__((always_inline)) emit_add(Instruction* instruction, struct AssemblerState* state) {
+void static inline emit_add(Instruction* instruction, struct AssemblerState* state) {
     struct AddIR* instr = &instruction->ir_add;
     struct AssemblyWriter* writer = &state->writer;
 
@@ -25,19 +25,22 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
 #ifdef OJIT_OPTIMIZATIONS
     if (INSTR_TYPE(instr->a) == ID_INT_IR || INSTR_TYPE(instr->b) == ID_INT_IR) {
         VLoc add_to;
+        Instruction* check_instr;
         uint32_t constant;
         if (INSTR_TYPE(instr->a) == ID_INT_IR) {
             add_to = *instr_assign_loc(instr->b, this_loc, state);
+            check_instr = instr->b;
             constant = instr->a->ir_int.constant;
         } else {
             add_to = *instr_assign_loc(instr->a, this_loc, state);
+            check_instr = instr->a;
             constant = instr->b->ir_int.constant;
         }
         enum Registers tmp_reg = store_loc(&this_loc, WRAP_NONE(), state);
         asm_emit_add_r64_i32(tmp_reg, constant, &state->writer);
         load_loc(&this_loc, state);
         asm_emit_mov(this_loc, add_to, writer);
-        emit_assert_int_i32(add_to, state);
+        emit_assert_instr_i32(check_instr, state);
         return;
     }
 #endif
@@ -55,11 +58,11 @@ void __attribute__((always_inline)) emit_add(Instruction* instruction, struct As
         asm_emit_mov32(this_loc, a_loc, writer);
     }
 
-    emit_assert_int_i32(a_loc, state);
-    emit_assert_int_i32(b_loc, state);
+    emit_assert_instr_i32(instr->a, state);
+    emit_assert_instr_i32(instr->b, state);
 }
 
-void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct AssemblerState* state) {
+void static inline emit_sub(Instruction* instruction, struct AssemblerState* state) {
     struct SubIR* instr = &instruction->ir_sub;
     struct AssemblyWriter* writer = &state->writer;
 
@@ -83,7 +86,7 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
         asm_emit_sub_r64_i32(tmp_reg, constant, &state->writer);
         load_loc(&this_loc, state);
         asm_emit_mov(this_loc, *add_to, writer);
-        emit_assert_int_i32(*add_to, state);
+        emit_assert_loc_i32(*add_to, state);
         return;
     }
 #endif
@@ -99,11 +102,11 @@ void __attribute__((always_inline)) emit_sub(Instruction* instruction, struct As
         asm_emit_mov(this_loc, a_loc, writer);
     }
 
-    emit_assert_int_i32(a_loc, state);
-    emit_assert_int_i32(b_loc, state);
+    emit_assert_loc_i32(a_loc, state);
+    emit_assert_loc_i32(b_loc, state);
 }
 
-void __attribute__((always_inline)) emit_cmp(Instruction* instruction, struct AssemblerState* state, bool store) {
+void static inline emit_cmp(Instruction* instruction, struct AssemblerState* state, bool store) {
     struct CompareIR* instr = &instruction->ir_cmp;
 
     if (store && !IS_ASSIGNED(GET_LOC(instr))) return;
@@ -114,18 +117,22 @@ void __attribute__((always_inline)) emit_cmp(Instruction* instruction, struct As
 #ifdef OJIT_OPTIMIZATIONS
     if (INSTR_TYPE(instr->a) == ID_INT_IR || INSTR_TYPE(instr->b) == ID_INT_IR) {
         VLoc* cmp_with;
+        Instruction* check_instr;
         uint32_t constant;
         if (INSTR_TYPE(instr->a) == ID_INT_IR) {
             cmp_with = instr_assign_loc(instr->b, this_loc, state);
+            check_instr = instr->b;
             constant = instr->a->ir_int.constant;
         } else {
             cmp_with = instr_assign_loc(instr->a, this_loc, state);
+            check_instr = instr->a;
             constant = instr->b->ir_int.constant;
         }
 //        if (store) asm_emit_setcc(instr->cmp, this_loc, &state->writer);
         enum Registers reg = postload_loc(cmp_with, this_loc, state);
         asm_emit_cmp_r32_i32(reg, constant, &state->writer);
-        emit_assert_int_i32(WRAP_REG(reg), state);
+        if (check_instr->base.type != TYPE_INT)
+            emit_assert_loc_i32(WRAP_REG(reg), state);
         load_loc(cmp_with, state);
         return;
     }
@@ -138,7 +145,7 @@ void __attribute__((always_inline)) emit_cmp(Instruction* instruction, struct As
     asm_emit_cmp(*a_loc, *b_loc, &state->writer);
 }
 
-void __attribute__((always_inline)) emit_global(Instruction* instruction, struct AssemblerState* state) {
+void static inline emit_global(Instruction* instruction, struct AssemblerState* state) {
     struct GlobalIR* instr = &instruction->ir_global;
 
     if (!IS_ASSIGNED(GET_LOC(instr))) return;
@@ -168,7 +175,7 @@ void __attribute__((always_inline)) emit_global(Instruction* instruction, struct
     if (state->used_registers[RAX]) asm_emit_push_r64(RAX, &state->writer);
 }
 
-void __attribute__((always_inline)) emit_call(Instruction* instruction, struct AssemblerState* state) {
+void static inline emit_call(Instruction* instruction, struct AssemblerState* state) {
     struct CallIR* instr = &instruction->ir_call;
 
     if (!IS_ASSIGNED(GET_LOC(instr))) return;
@@ -217,7 +224,7 @@ void __attribute__((always_inline)) emit_call(Instruction* instruction, struct A
     if (push_rax) asm_emit_push_r64(RAX, &state->writer);
 }
 
-void __attribute__((always_inline)) emit_get_attr(Instruction* instruction, struct AssemblerState* state) {
+void static inline emit_get_attr(Instruction* instruction, struct AssemblerState* state) {
     struct GetAttrIR* instr = &instruction->ir_get_attr;
 
     if (!IS_ASSIGNED(GET_LOC(instr))) return;
@@ -249,7 +256,7 @@ void __attribute__((always_inline)) emit_get_attr(Instruction* instruction, stru
     if (state->used_registers[RAX]) asm_emit_push_r64(RAX, &state->writer);
 }
 
-void __attribute__((always_inline)) emit_get_loc(Instruction* instruction, struct AssemblerState* state) {
+void static inline emit_get_loc(Instruction* instruction, struct AssemblerState* state) {
     struct GetLocIR* instr = &instruction->ir_get_loc;
     OJIT_ASSERT(INSTR_TYPE(instr->loc) == ID_GET_ATTR_IR, "err");
 
@@ -262,7 +269,7 @@ void __attribute__((always_inline)) emit_get_loc(Instruction* instruction, struc
     asm_emit_mov(this_loc, *loc_reg, &state->writer);
 }
 
-void __attribute__((always_inline)) emit_set_loc(Instruction* instruction, struct AssemblerState* state) {
+void static inline emit_set_loc(Instruction* instruction, struct AssemblerState* state) {
     struct SetLocIR* instr = &instruction->ir_set_loc;
     OJIT_ASSERT(INSTR_TYPE(instr->loc) == ID_GET_ATTR_IR, "err");
 
@@ -277,7 +284,7 @@ void __attribute__((always_inline)) emit_set_loc(Instruction* instruction, struc
     asm_emit_mov(*loc_reg, *value_reg, &state->writer);
 }
 
-void __attribute__((always_inline)) emit_new_object(Instruction* instruction, struct AssemblerState* state) {
+void static inline emit_new_object(Instruction* instruction, struct AssemblerState* state) {
     struct NewObjectIR* instr = &instruction->ir_new_object;
 
     if (!IS_ASSIGNED(GET_LOC(instr))) return;
@@ -306,7 +313,7 @@ void __attribute__((always_inline)) emit_new_object(Instruction* instruction, st
     if (state->used_registers[RAX]) asm_emit_push_r64(RAX, &state->writer);
 }
 
-void __attribute__((always_inline)) emit_instruction(Instruction* instruction_ir, struct AssemblerState* state) {
+void static inline emit_instruction(Instruction* instruction_ir, struct AssemblerState* state) {
     switch (instruction_ir->base.id) {
         case ID_INT_IR: emit_int(instruction_ir, state); break;
         case ID_ADD_IR: emit_add(instruction_ir, state); break;

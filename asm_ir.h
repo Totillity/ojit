@@ -62,6 +62,7 @@ bool loc_equal(VLoc loc_1, VLoc loc_2);
 
 typedef enum ValueType {
     TYPE_UNKNOWN,
+    TYPE_CONFLICTING,
     TYPE_INT,
     TYPE_OBJECT,
 } ValueType;

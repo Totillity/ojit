@@ -135,15 +135,6 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
         swap_to[i] = NULL;
     }
 
-//    uint64_t target_locs = UINT64_MAX ^ (
-//            (1 << RBX) |
-//            (1 << NO_REG) |
-//            (1 << SPILLED_REG) |
-//            (1 << RSI) |
-//            (1 << RDI) |
-//            (1 << TMP_1_REG) |
-//            (1 << TMP_2_REG)
-//    );
     VLoc* target_locs[target->num_params]; for (int i = 0; i < target->num_params; i++) target_locs[i] = NULL;
     uint32_t target_locs_index = 0;
 

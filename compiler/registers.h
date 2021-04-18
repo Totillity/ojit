@@ -7,25 +7,60 @@
 // region Registers
 #define GET_LOC(value) ((value)->base.loc)
 
-void __attribute__((always_inline)) mark_reg(enum Registers reg, struct AssemblerState* state) {
+//void static inline mark_reg(enum Registers reg, struct AssemblerState* state);
+//
+//void static inline mark_loc(VLoc loc, struct AssemblerState* state);
+//
+//void static inline unmark_reg(enum Registers reg, struct AssemblerState* state);
+//
+//void static inline unmark_loc(VLoc loc, struct AssemblerState* state);
+//
+//bool static inline loc_is_marked(VLoc loc, struct AssemblerState* state);
+//
+//enum Registers get_unused(const bool* registers);
+//
+//enum Registers get_unused_tmp(const bool* registers);
+//
+//VLoc* instr_assign_loc(Instruction* instr, VLoc suggested, struct AssemblerState* state);
+//
+//VLoc* assign_loc(VLoc* loc, VLoc suggested, struct AssemblerState* state);
+//
+//enum Registers postload_loc(VLoc* loc, VLoc suggested, struct AssemblerState* state);
+//
+//enum Registers store_loc(VLoc* loc, VLoc suggested, struct AssemblerState* state);
+//
+//void load_loc(VLoc* loc, struct AssemblerState* state);
+//
+//void prestore_loc(VLoc* loc, struct AssemblerState* state);
+//
+//void load_loc_into(VLoc* loc, enum Registers reg, struct AssemblerState* state);
+//// endregion
+//
+//void static inline emit_assert_loc_i32(VLoc check_loc, struct AssemblerState* state);
+//
+//void static inline emit_assert_instr_i32(Instruction* instr, struct AssemblerState* state);
+//
+//void static inline emit_wrap_int_i32(VLoc* loc, uint32_t constant, struct AssemblerState* state);
+
+void static inline mark_reg(enum Registers reg, struct AssemblerState* state) {
     OJIT_ASSERT(state->used_registers[reg] == false, "Attempted to mark a register which is already marked");
     state->used_registers[reg] = true;
 }
 
-void __attribute__((always_inline)) mark_loc(VLoc loc, struct AssemblerState* state) {
+void static inline mark_loc(VLoc loc, struct AssemblerState* state) {
     if (loc.is_reg) mark_reg(loc.reg, state);
 }
 
-void __attribute__((always_inline)) unmark_reg(enum Registers reg, struct AssemblerState* state) {
+void static inline unmark_reg(enum Registers reg, struct AssemblerState* state) {
     OJIT_ASSERT(state->used_registers[reg] == true, "Attempted to unmark a register which is already unmarked");
     state->used_registers[reg] = false;
 }
 
-void __attribute__((always_inline)) unmark_loc(VLoc loc, struct AssemblerState* state) {
+void static inline unmark_loc(VLoc loc, struct AssemblerState* state) {
     if (loc.is_reg) unmark_reg(loc.reg, state);
 }
 
-bool __attribute__((always_inline)) loc_is_marked(VLoc loc, struct AssemblerState* state) {
+bool static inline loc_is_marked(VLoc loc, struct AssemblerState* state) {
     if (loc.is_reg) return state->used_registers[loc.reg];
     else return false;
 }
@@ -136,7 +171,7 @@ void load_loc_into(VLoc* loc, enum Registers reg, struct AssemblerState* state) 
 }
 // endregion
 
-void __attribute__((always_inline)) emit_assert_int_i32(VLoc check_loc, struct AssemblerState* state) {
+void static inline emit_assert_loc_i32(VLoc check_loc, struct AssemblerState* state) {
     Segment* this_err_label = state->errs_label;
     struct AssemblyWriter old_writer = state->writer;
     state->writer.label = this_err_label;
@@ -153,7 +188,14 @@ void __attribute__((always_inline)) emit_assert_int_i32(VLoc check_loc, struct A
     state->errs_label = create_segment_label(err_segment, state->err_return_label, state->writer.write_mem);
 }
 
-void __attribute__((always_inline)) emit_wrap_int_i32(VLoc* loc, uint32_t constant, struct AssemblerState* state) {
+void static inline emit_assert_instr_i32(Instruction* instr, struct AssemblerState* state) {
+    printf("emitting assert\n");
+    if (instr->base.type == TYPE_INT)
+        return;
+    emit_assert_loc_i32(GET_LOC(instr), state);
+}
+
+void static inline emit_wrap_int_i32(VLoc* loc, uint32_t constant, struct AssemblerState* state) {
     uint64_t value = 0;
     value += 0b001ull << 48;
     value += constant;

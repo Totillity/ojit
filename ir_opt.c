@@ -1,4 +1,5 @@
 #include "ir_opt.h"
+//#include "compiler/registers.h"
 
 struct OptState {
     struct GetFunctionCallback callbacks;
@@ -78,8 +79,8 @@ void optimize_add_ir(Instruction* instr) {
 }
 
 #define MATCH_ADD(a_type, b_type, func) \
-    if (INSTR_TYPE(instr) == ID_ADD_IR && INSTR_TYPE(instr->ir_add.a) == a_type && INSTR_TYPE(instr->ir_add.b) == b_type) { \
-        next_step = func((void*) instr, (void*) instr->ir_add.a, (void*) instr->ir_add.b); \
+    if (INSTR_TYPE(instr) == ID_ADD_IR && INSTR_TYPE(instr->ir_add.a) == (a_type) && INSTR_TYPE(instr->ir_add.b) == (b_type)) { \
+        next_step = (func)((void*) instr, (void*) instr->ir_add.a, (void*) instr->ir_add.b); \
     } else
 
 #define DEFAULT(func) {next_step = func(instr);}
@@ -153,8 +154,97 @@ void ojit_peephole_optimizer(struct BlockIR* block, struct OptState* opt_state) 
     }
 }
 
+void static inline a(struct BlockIR* from, struct BlockIR* target) {
+    FOREACH_INSTR(instr, target->first_instrs) {
+        if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
+            struct ParameterIR* param = &instr->ir_parameter;
+            if (param->base.refs == 0) continue;
+            IRValue argument;
+            hash_table_get(&from->variables, STRING_KEY(param->var_name), (uint64_t*) &argument);
+
+            ValueType old_type = param->base.type;
+            if (argument->base.type == TYPE_UNKNOWN) {
+                argument->base.type = param->base.type;
+                // TODO figure out a way to reschedule a visit to target_block
+            } else {
+                if (old_type == TYPE_UNKNOWN) {
+                    param->base.type = argument->base.type;
+                } else if (old_type != TYPE_CONFLICTING && argument->base.type != TYPE_CONFLICTING) {
+                    if (old_type != argument->base.type) {
+                        param->base.type = TYPE_CONFLICTING;
+                    }
+                }
+            }
+        } else {
+            break;
+        }
+    }
+}
+
+
+void ojit_assign_types(struct BlockIR* block, struct OptState* state) {
+    FOREACH_INSTR(instr, block->first_instrs) {
+        switch (INSTR_TYPE(instr)) {
+            case ID_INT_IR:
+                instr->base.type = TYPE_INT;
+                break;
+            case ID_ADD_IR:
+                instr->base.type = TYPE_INT;
+                break;
+            case ID_SUB_IR:
+                instr->base.type = TYPE_INT;
+                break;
+            case ID_BLOCK_PARAMETER_IR:
+//                instr->base.type = TYPE_UNKNOWN;
+                break;
+            case ID_CALL_IR:
+                instr->base.type = TYPE_UNKNOWN;
+                break;
+            case ID_CMP_IR:
+                instr->base.type = TYPE_INT;
+                break;
+            case ID_GET_ATTR_IR:
+                instr->base.type = TYPE_UNKNOWN;
+                break;
+            case ID_GET_LOC_IR:
+                instr->base.type = TYPE_UNKNOWN;
+                break;
+            case ID_SET_LOC_IR:
+                instr->base.type = instr->ir_set_loc.value->base.type;
+                break;
+            case ID_GLOBAL_IR:
+                instr->base.type = TYPE_UNKNOWN;
+                break;
+            case ID_NEW_OBJECT_IR:
+                instr->base.type = TYPE_UNKNOWN;
+                break;
+            case ID_INSTR_NONE:
+                instr->base.type = TYPE_UNKNOWN;
+                break;
+        }
+    }
+
+    union TerminatorIR* terminator = &block->terminator;
+    switch (terminator->ir_base.id) {
+        case ID_BRANCH_IR:
+            a(block, terminator->ir_branch.target);
+            break;
+        case ID_CBRANCH_IR:
+            a(block, terminator->ir_cbranch.true_target);
+            a(block, terminator->ir_cbranch.false_target);
+            break;
+        case ID_RETURN_IR:
+            // TODO assign function return type
+            break;
+        case ID_TERM_NONE:
+            break;
+    }
+}
+
+
 void ojit_optimize_block(struct BlockIR* block, struct OptState* state) {
     ojit_peephole_optimizer(block, state);
+    ojit_assign_types(block, state);
 }
 
 void ojit_optimize_params_branch(struct BlockIR* target, struct BlockIR* block) {
