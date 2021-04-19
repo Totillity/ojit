@@ -528,7 +528,7 @@ void static inline map_registers(VLoc** map_from, VLoc** map_to, uint32_t rows, 
         VLoc* to = map_to[i];
         if (from == NULL || to == NULL) continue;
         for (int k = i - 1; k >= 0; k--) {
-            if (loc_equal(*map_to[k], *from)) {
+            if (map_to[k] && loc_equal(*map_to[k], *from)) {
                 must_xchg = true;
                 break;
             }

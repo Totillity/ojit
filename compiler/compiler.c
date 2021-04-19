@@ -314,7 +314,7 @@ struct CompiledFunction ojit_compile_function(struct FunctionIR* func, MemCtx* c
         while (instr) {
             if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
                 struct ParameterIR* param = &instr->ir_parameter;
-                if (param->base.refs != 0) {
+                if (param->base.refs != 0 && IS_ASSIGNED(GET_LOC(param))) {
                     swap_to[k] = &GET_LOC(param);
                     swap_from[k] = &param->entry_loc;
                     k -= 1;

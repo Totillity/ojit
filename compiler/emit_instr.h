@@ -95,11 +95,13 @@ void static inline emit_sub(Instruction* instruction, struct AssemblerState* sta
 
     if (loc_equal(a_loc, this_loc)) {
         asm_emit_sub(this_loc, b_loc, writer);
+        asm_emit_mov32(WRAP_REG(TMP_1_REG), b_loc, writer);
     } else if (loc_equal(b_loc, this_loc)) {
         asm_emit_sub(this_loc, a_loc, writer);
+        asm_emit_mov32(WRAP_REG(TMP_1_REG), a_loc, writer);
     } else {
         asm_emit_sub(this_loc, b_loc, writer);
-        asm_emit_mov(this_loc, a_loc, writer);
+        asm_emit_mov32(this_loc, a_loc, writer);
     }
 
     emit_assert_loc_i32(a_loc, state);
@@ -214,7 +216,7 @@ void static inline emit_call(Instruction* instruction, struct AssemblerState* st
             case 4: reg = WRAP_REG(R9); break;
             default: exit(-1);
         }
-        asm_emit_mov(reg, GET_LOC(arg), &state->writer);
+        asm_emit_mov(reg, *instr_assign_loc(arg, reg, state), &state->writer);
         // TODO convert to swap
         arg_num++;
     }

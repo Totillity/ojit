@@ -25,8 +25,9 @@ int main() {
     if (success) {
         JITFunc main_func = jit_get_function(jit, "main", 4);
         jit_dump_function(jit, main_func, stdout);
+        jit_dump_function(jit, jit_get_function(jit, "fibo", 4), stdout);
 
-        OJITValue arg = INT_AS_VAL(1);
+        OJITValue arg = INT_AS_VAL(20);
         OJITValue res = jit_call_function(jit, main_func, FuncType, arg);
         if (VAL_IS_TYPE_ERROR(res)) {
             ojit_new_error();

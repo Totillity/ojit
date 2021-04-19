@@ -1,8 +1,17 @@
-def main(a1) {
-    let a2 = 0;
-    while (a2 < 3) {
-        a1 = a1 + 3;
-        a2 = a2 + 1;
+def fibo(n) {
+    let f1 = 0;
+    let f2 = 1;
+    let f3 = 1;
+    while (n > 0) {
+        f3 = f2 + f1;
+        f1 = f2;
+        f2 = f3;
+        n = n - 1;
     }
+    return f1;
+}
+
+def main(a1) {
+    a1 = fibo(a1);
     return a1;
 }
