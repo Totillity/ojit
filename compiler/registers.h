@@ -189,7 +189,6 @@ void static inline emit_assert_loc_i32(VLoc check_loc, struct AssemblerState* st
 }
 
 void static inline emit_assert_instr_i32(Instruction* instr, struct AssemblerState* state) {
-    printf("emitting assert\n");
     if (instr->base.type == TYPE_INT)
         return;
     emit_assert_loc_i32(GET_LOC(instr), state);

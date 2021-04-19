@@ -4,7 +4,7 @@
 #include "registers.h"
 #include "emit_instr.h"
 
-void __attribute__((always_inline)) emit_return(union TerminatorIR* terminator, struct AssemblerState* state) {
+void static inline emit_return(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct ReturnIR* ret = &terminator->ir_return;
     asm_emit_ret(&state->writer);
     instr_assign_loc(ret->value, WRAP_REG(RAX), state);
@@ -21,7 +21,7 @@ bool vloc_list_contains(VLoc** list, uint32_t num_items, VLoc item) {
     return false;
 }
 
-void __attribute__((always_inline)) resolve_defined_arguments(struct BlockIR* target, VLoc** swap_from, VLoc** swap_to, VLoc** target_locs, uint32_t* target_locs_index, struct AssemblerState* state) {
+void static inline resolve_defined_arguments(struct BlockIR* target, VLoc** swap_from, VLoc** swap_to, VLoc** target_locs, uint32_t* target_locs_index, struct AssemblerState* state) {
     FOREACH_INSTR(instr, target->first_instrs) {
         if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
             struct ParameterIR* param = &instr->ir_parameter;
@@ -70,7 +70,7 @@ void __attribute__((always_inline)) resolve_defined_arguments(struct BlockIR* ta
     }
 }
 
-void __attribute__((always_inline)) resolve_undefined_arguments(struct BlockIR* target, VLoc** swap_from, VLoc** swap_to, VLoc** target_locs, uint32_t* target_locs_index, struct AssemblerState* state) {
+void static inline resolve_undefined_arguments(struct BlockIR* target, VLoc** swap_from, VLoc** swap_to, VLoc** target_locs, uint32_t* target_locs_index, struct AssemblerState* state) {
     FOREACH_INSTR(instr, target->first_instrs) {
         if (instr->base.id == ID_BLOCK_PARAMETER_IR) {
             struct ParameterIR* param = &instr->ir_parameter;
@@ -127,7 +127,7 @@ void __attribute__((always_inline)) resolve_undefined_arguments(struct BlockIR* 
     }
 }
 
-void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struct AssemblerState* state) {
+void static inline resolve_branch(struct BlockIR* target, struct AssemblerState* state) {
     VLoc* swap_from[target->num_params];
     VLoc* swap_to[target->num_params];
     for (int i = 0; i < target->num_params; i++) {
@@ -144,7 +144,7 @@ void __attribute__((always_inline)) resolve_branch(struct BlockIR* target, struc
     map_registers(swap_from, swap_to, target->num_params, &state->writer);
 }
 
-void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, struct AssemblerState* state) {
+void static inline emit_branch(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct BranchIR* branch = &terminator->ir_branch;
 
     asm_emit_jmp(branch->target->data, &state->writer);  // comeback to this later after I've stitched everything together
@@ -152,7 +152,7 @@ void __attribute__((always_inline)) emit_branch(union TerminatorIR* terminator, 
     resolve_branch(branch->target, state);
 }
 
-void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator, struct AssemblerState* state) {
+void static inline emit_cbranch(union TerminatorIR* terminator, struct AssemblerState* state) {
     struct CBranchIR* cbranch = &terminator->ir_cbranch;
 
 #ifdef OJIT_OPTIMIZATIONS
@@ -178,7 +178,7 @@ void __attribute__((always_inline)) emit_cbranch(union TerminatorIR* terminator,
     load_loc(&GET_LOC(cbranch->cond), state);
 }
 
-void __attribute__((always_inline)) emit_terminator(union TerminatorIR* terminator_ir, struct AssemblerState* state) {
+void static inline emit_terminator(union TerminatorIR* terminator_ir, struct AssemblerState* state) {
     switch (terminator_ir->ir_base.id) {
         case ID_RETURN_IR: emit_return(terminator_ir, state); break;
         case ID_BRANCH_IR: emit_branch(terminator_ir, state); break;
